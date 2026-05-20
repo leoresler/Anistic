@@ -1,0 +1,507 @@
+@import "tailwindcss";
+
+@theme {
+  /* Fondo gris oscuro */
+  --color-bg: #101010;
+  --color-bg-soft: #151515;
+
+  /* Superficies gris oscuro con apenas calidez */
+  --color-surface: #181716;
+  --color-surface-2: #20201f;
+  --color-surface-3: #2a2927;
+
+  /* Bordes cálidos */
+  --color-border: rgba(220, 190, 150, 0.16);
+  --color-border-strong: rgba(235, 205, 165, 0.32);
+
+  /* Texto gris claro, menos crema */
+  --color-text: #e4e0db;
+  --color-text-muted: #9a948d;
+  --color-text-soft: #bdb6ae;
+
+  /* Reemplazo total de azul/celeste/verde por cálidos */
+  --color-navy: #7a4f35;
+  --color-sky: #c59a67;
+  --color-sage: #a9784f;
+
+  /* Estados cálidos */
+  --color-status-airing: #b8894f;
+  --color-status-completed: #c49a6c;
+  --color-status-plan: #d0b184;
+  --color-status-dropped: #c96550;
+  --color-status-movie: #a66f54;
+
+  /* Alias de identidad cálida */
+  --color-ember: #b86f3f;
+  --color-gold: #d6b47b;
+  --color-blush: #b78368;
+
+  /* Efectos cálidos reutilizables */
+  --fx-white-05: rgba(255, 234, 206, 0.05);
+  --fx-white-04: rgba(255, 234, 206, 0.04);
+  --fx-white-03: rgba(255, 234, 206, 0.03);
+  --fx-white-08: rgba(255, 234, 206, 0.08);
+  --fx-white-10: rgba(255, 234, 206, 0.10);
+  --fx-black-16: rgba(21, 15, 12, 0.16);
+  --fx-black-18: rgba(21, 15, 12, 0.18);
+  --fx-black-34: rgba(26, 19, 15, 0.34);
+  --fx-sky-08: rgba(197, 154, 103, 0.08);
+  --fx-sky-18: rgba(197, 154, 103, 0.18);
+  --fx-navy-22: rgba(122, 79, 53, 0.22);
+  --fx-button-primary: linear-gradient(135deg, rgba(214, 180, 123, 0.96), rgba(184, 111, 63, 0.92));
+  --fx-button-primary-text: #1f1813;
+  --fx-overlay-hero: linear-gradient(145deg, rgba(18, 12, 9, 0.12), rgba(8, 6, 5, 0.82));
+  --fx-overlay-poster: linear-gradient(180deg, rgba(18, 12, 9, 0.10), rgba(8, 6, 5, 0.74));
+  --fx-overlay-card: linear-gradient(180deg, rgba(255, 234, 206, 0.18), rgba(20, 12, 8, 0.72));
+  --fx-input-bg: linear-gradient(180deg, rgba(255, 234, 206, 0.04), rgba(255, 234, 206, 0.02));
+  --fx-progress-track: rgba(255, 234, 206, 0.05);
+  --fx-score-bg: rgba(24, 20, 17, 0.52);
+  --status-airing-soft: rgba(184, 137, 79, 0.10);
+  --status-airing-border: rgba(184, 137, 79, 0.25);
+  --status-airing-text: #ddb277;
+  --status-completed-soft: rgba(196, 154, 108, 0.10);
+  --status-completed-border: rgba(196, 154, 108, 0.25);
+  --status-completed-text: #e0bc93;
+  --status-plan-soft: rgba(208, 177, 132, 0.10);
+  --status-plan-border: rgba(208, 177, 132, 0.25);
+  --status-plan-text: #ead2af;
+  --status-dropped-soft: rgba(201, 101, 80, 0.10);
+  --status-dropped-border: rgba(201, 101, 80, 0.25);
+  --status-dropped-text: #f0a795;
+  --status-movie-soft: rgba(166, 111, 84, 0.10);
+  --status-movie-border: rgba(166, 111, 84, 0.25);
+  --status-movie-text: #ddb09a;
+
+  --font-sans: "Rubik", sans-serif;
+}
+
+@keyframes shimmer {
+  0% {
+    background-position: -200% 0;
+  }
+
+  100% {
+    background-position: 200% 0;
+  }
+}
+
+@layer base {
+  html {
+    font-family: var(--font-sans);
+    background: var(--color-bg);
+    color: var(--color-text-muted);
+    color-scheme: dark;
+  }
+
+  body {
+    min-height: 100vh;
+    background:
+      radial-gradient(
+        circle at top,
+        rgba(184, 111, 63, 0.11),
+        transparent 30%
+      ),
+      radial-gradient(
+        circle at 85% 8%,
+        rgba(214, 180, 123, 0.09),
+        transparent 24%
+      ),
+      radial-gradient(
+        circle at 50% 120%,
+        rgba(92, 55, 34, 0.22),
+        transparent 34%
+      ),
+      linear-gradient(
+        180deg,
+        #0b0b0b 0%,
+        #101010 48%,
+        #080808 100%
+      );
+
+    color: var(--color-text-muted);
+    position: relative;
+  }
+
+  body::before {
+    content: "";
+    position: fixed;
+    inset: 0;
+    pointer-events: none;
+    background:
+      linear-gradient(
+        120deg,
+        rgba(255, 234, 206, 0.028),
+        transparent 30%
+      ),
+      radial-gradient(
+        circle at 20% 20%,
+        rgba(184, 111, 63, 0.10),
+        transparent 18%
+      ),
+      radial-gradient(
+        circle at 80% 12%,
+        rgba(214, 180, 123, 0.08),
+        transparent 22%
+      );
+    opacity: 0.9;
+  }
+
+  body::after {
+    content: "";
+    position: fixed;
+    inset: 0;
+    pointer-events: none;
+    background-image:
+      linear-gradient(rgba(255, 234, 206, 0.015) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(255, 234, 206, 0.015) 1px, transparent 1px);
+    background-size: 160px 160px;
+    mask-image: radial-gradient(circle at center, black 35%, transparent 90%);
+    opacity: 0.13;
+  }
+
+  * {
+    box-sizing: border-box;
+  }
+
+  a {
+    color: inherit;
+    text-decoration: none;
+  }
+
+  button,
+  input {
+    font: inherit;
+  }
+}
+
+@layer components {
+  .page-shell {
+    @apply relative min-h-screen overflow-hidden px-4 py-4 md:px-6 md:py-6;
+  }
+
+  .page-shell::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    background:
+      radial-gradient(
+        circle at top left,
+        rgba(184, 111, 63, 0.09),
+        transparent 22%
+      ),
+      radial-gradient(
+        circle at top right,
+        rgba(214, 180, 123, 0.08),
+        transparent 28%
+      ),
+      linear-gradient(
+        180deg,
+        rgba(255, 234, 206, 0.014),
+        transparent 18%
+      );
+  }
+
+  .page-frame {
+    @apply relative mx-auto max-w-7xl space-y-8 md:space-y-10;
+  }
+
+  .eyebrow {
+    @apply text-[10px] uppercase tracking-[0.28em];
+    color: var(--color-text-muted);
+  }
+
+  .eyebrow-soft {
+    @apply text-[10px] uppercase tracking-[0.3em];
+    color: var(--color-text-soft);
+  }
+
+  .body-copy {
+    @apply text-sm leading-6;
+    color: var(--color-text-soft);
+  }
+
+  .panel {
+    @apply rounded-[28px] border backdrop-blur-xl;
+    border-color: var(--color-border);
+    background: linear-gradient(
+      180deg,
+      rgba(34, 33, 31, 0.94) 0%,
+      rgba(24, 23, 22, 0.92) 100%
+    );
+    box-shadow:
+      inset 0 1px 0 rgba(255, 234, 206, 0.045),
+      0 18px 48px rgba(0, 0, 0, 0.42);
+  }
+
+  .panel-soft {
+    @apply rounded-[24px] border backdrop-blur-xl;
+    border-color: var(--color-border);
+    background: linear-gradient(
+      180deg,
+      rgba(42, 40, 37, 0.78) 0%,
+      rgba(26, 24, 23, 0.72) 100%
+    );
+    box-shadow:
+      inset 0 1px 0 rgba(255, 234, 206, 0.035),
+      0 12px 34px rgba(0, 0, 0, 0.30);
+  }
+
+  .section-kicker {
+    @apply text-[10px] uppercase tracking-[0.34em] md:text-[11px];
+    color: var(--color-text-muted);
+  }
+
+  .section-heading {
+    @apply mt-2 text-xl font-medium tracking-[-0.02em] md:text-2xl;
+    color: var(--color-text);
+  }
+
+  .section-copy {
+    @apply mt-3 max-w-2xl text-sm leading-7;
+    color: var(--color-text-soft);
+  }
+
+  .shimmer {
+    background-image: linear-gradient(
+      90deg,
+      rgba(49, 41, 34, 0.64) 0%,
+      rgba(255, 234, 206, 0.09) 50%,
+      rgba(49, 41, 34, 0.64) 100%
+    );
+    background-size: 200% 100%;
+    animation: shimmer 1.8s infinite linear;
+  }
+
+  .btn-primary {
+    @apply inline-flex items-center justify-center rounded-full border px-4 py-2.5 text-sm font-medium transition-all duration-200 hover:-translate-y-0.5 active:scale-[0.98];
+    border-color: var(--color-border-strong);
+    background: var(--fx-button-primary);
+    color: var(--fx-button-primary-text);
+    box-shadow: 0 16px 32px var(--fx-navy-22);
+  }
+
+  .btn-outline {
+    @apply inline-flex items-center justify-center rounded-full border px-4 py-2.5 text-sm font-medium transition-all duration-200 hover:-translate-y-0.5 active:scale-[0.98];
+    border-color: var(--color-border-strong);
+    background: var(--fx-white-03);
+    color: var(--color-text);
+    box-shadow: inset 0 1px 0 var(--fx-white-04);
+  }
+
+  .btn-ghost {
+    @apply inline-flex items-center justify-center rounded-full border border-transparent px-4 py-2.5 text-sm font-medium transition-all duration-200 hover:-translate-y-0.5 active:scale-[0.98];
+    background: var(--fx-white-04);
+    color: var(--color-text-soft);
+  }
+
+  .btn-ghost:hover {
+    border-color: var(--color-border);
+  }
+
+  .input-surface {
+    @apply flex min-h-14 items-center gap-3 rounded-full border px-5 text-sm;
+    border-color: var(--color-border);
+    background: var(--fx-input-bg);
+    color: var(--color-text-soft);
+    box-shadow: inset 0 1px 0 var(--fx-white-04);
+  }
+
+  .score-pill {
+    @apply inline-flex rounded-full border px-3 py-1.5 text-[11px] font-medium tracking-[0.14em] backdrop-blur-sm;
+    border-color: var(--color-border-strong);
+    background: var(--fx-score-bg);
+    color: var(--color-gold);
+  }
+
+  .status-badge {
+    @apply inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-[10px] font-medium uppercase tracking-[0.18em];
+  }
+
+  .status-badge-airing {
+    border-color: var(--status-airing-border);
+    background: var(--status-airing-soft);
+    color: var(--status-airing-text);
+  }
+
+  .status-badge-completed {
+    border-color: var(--status-completed-border);
+    background: var(--status-completed-soft);
+    color: var(--status-completed-text);
+  }
+
+  .status-badge-plan {
+    border-color: var(--status-plan-border);
+    background: var(--status-plan-soft);
+    color: var(--status-plan-text);
+  }
+
+  .status-badge-dropped {
+    border-color: var(--status-dropped-border);
+    background: var(--status-dropped-soft);
+    color: var(--status-dropped-text);
+  }
+
+  .status-badge-movie {
+    border-color: var(--status-movie-border);
+    background: var(--status-movie-soft);
+    color: var(--status-movie-text);
+  }
+
+  .chip {
+    @apply rounded-full border px-3.5 py-2 text-sm;
+    border-color: var(--color-border);
+    background: var(--fx-white-04);
+    color: var(--color-text-soft);
+  }
+
+  .chip-active {
+    @apply rounded-full border px-3.5 py-2 text-sm;
+    border-color: var(--color-border-strong);
+    background: var(--fx-button-primary);
+    color: var(--fx-button-primary-text);
+    box-shadow: 0 12px 24px var(--fx-navy-22);
+  }
+
+  .chip-selected {
+    @apply rounded-full border px-3.5 py-2 text-sm;
+    border-color: var(--color-border-strong);
+    background: var(--fx-white-05);
+    color: var(--color-sky);
+  }
+
+  .nav-pill {
+    @apply rounded-full px-4 py-2 text-sm transition-all duration-200;
+    color: var(--color-text-muted);
+  }
+
+  .nav-pill:hover {
+    background: var(--fx-white-05);
+    color: var(--color-text);
+  }
+
+  .nav-pill-active {
+    @apply rounded-full border px-4 py-2 text-sm transition-all duration-200;
+    border-color: var(--color-border-strong);
+    background: var(--fx-white-05);
+    color: var(--color-text);
+    box-shadow: 0 0 0 1px var(--fx-sky-08), 0 10px 24px rgba(0, 0, 0, 0.22);
+  }
+
+  .progress-track {
+    @apply h-2.5 w-full overflow-hidden rounded-full border;
+    border-color: var(--fx-white-04);
+    background: var(--fx-progress-track);
+  }
+
+  .progress-fill {
+    @apply h-full rounded-full;
+    box-shadow: 0 0 16px rgba(214, 180, 123, 0.24);
+  }
+
+  .card-shell {
+    @apply overflow-hidden rounded-3xl border;
+    border-color: var(--color-border);
+    background: linear-gradient(180deg, rgba(49, 41, 34, 0.86), rgba(24, 22, 20, 0.94));
+    box-shadow: 0 18px 34px rgba(0, 0, 0, 0.28);
+  }
+
+  .card-shell:hover {
+    border-color: var(--color-border-strong);
+    box-shadow: 0 24px 42px rgba(0, 0, 0, 0.3);
+  }
+
+  .poster-frame {
+    @apply relative overflow-hidden;
+    background: var(--color-surface-2);
+  }
+
+  .poster-mini {
+    @apply relative overflow-hidden rounded-xl border;
+    border-color: var(--fx-white-08);
+  }
+
+  .poster-hero {
+    @apply relative min-h-[360px] overflow-hidden rounded-[26px] border;
+    border-color: var(--color-border-strong);
+    background: var(--color-surface-2);
+    box-shadow: 0 30px 70px rgba(0, 0, 0, 0.36);
+  }
+
+  .poster-overlay {
+    background: radial-gradient(circle at top left, rgba(255, 234, 206, 0.18), transparent 34%), var(--fx-overlay-poster);
+  }
+
+  .poster-overlay-card {
+    background: var(--fx-overlay-card);
+  }
+
+  .poster-overlay-hero {
+    background: radial-gradient(circle at top left, rgba(255, 234, 206, 0.26), transparent 30%), radial-gradient(circle at bottom right, var(--fx-sky-18), transparent 28%), var(--fx-overlay-hero);
+  }
+
+  .poster-overlay-soft {
+    background: radial-gradient(circle at top left, rgba(255, 234, 206, 0.2), transparent 30%), linear-gradient(180deg, rgba(18, 12, 9, 0.08), rgba(8, 6, 5, 0.76));
+  }
+
+  .poster-gloss {
+    background: linear-gradient(to bottom, rgba(255, 234, 206, 0.10), transparent);
+  }
+
+  .accent-divider {
+    background: linear-gradient(90deg, var(--color-navy), var(--color-sky), var(--color-sage));
+  }
+
+  .frost-panel {
+    @apply rounded-[24px] border backdrop-blur-xl;
+    border-color: var(--fx-white-10);
+    background: var(--fx-black-34);
+  }
+
+  .glass-chip {
+    @apply rounded-full border px-4 py-2 text-[10px] uppercase tracking-[0.3em] backdrop-blur-md;
+    border-color: var(--fx-white-10);
+    background: var(--fx-black-16);
+    color: var(--color-text-soft);
+  }
+
+  .glass-chip-wide {
+    @apply rounded-full border px-4 py-2 text-sm backdrop-blur-md;
+    border-color: var(--fx-white-08);
+    background: var(--fx-black-18);
+    color: var(--color-text);
+  }
+
+  .glass-panel {
+    @apply rounded-[22px] border px-5 py-4 text-sm backdrop-blur-md;
+    border-color: var(--fx-white-08);
+    background: var(--fx-black-18);
+    color: var(--color-text);
+  }
+
+  .table-head {
+    @apply grid gap-4 border-b px-4 py-4 text-[11px] uppercase tracking-[0.28em];
+    border-color: var(--color-border);
+    background: var(--fx-white-03);
+    color: var(--color-text-muted);
+  }
+
+  .table-row {
+    @apply grid gap-4 px-4 py-4 transition-colors;
+  }
+
+  .table-row:hover {
+    background: var(--fx-white-03);
+  }
+
+  .table-row-featured {
+    background: rgba(255, 255, 255, 0.02);
+  }
+
+  .action-pill {
+    @apply rounded-full border px-3 py-1 text-[10px] uppercase tracking-[0.24em];
+    border-color: var(--color-border);
+    background: var(--fx-white-05);
+    color: var(--color-text-muted);
+  }
+}
