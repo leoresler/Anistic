@@ -1,5 +1,5 @@
 import { NavBar } from '../../shared/components/NavBar';
-import { AnimeGrid } from './components/AnimeGrid';
+import { EditorialFooter } from '../../shared/components/EditorialFooter';
 import { HeroBanner } from './components/HeroBanner';
 import { SeasonalRow } from './components/SeasonalRow';
 
@@ -10,7 +10,7 @@ export function HomePage() {
         <NavBar />
         <HeroBanner />
         <SeasonalRow />
-        <AnimeGrid />
+        <EditorialFooter />
       </div>
     </main>
   );

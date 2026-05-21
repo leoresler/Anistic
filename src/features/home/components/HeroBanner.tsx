@@ -1,65 +1,139 @@
+import { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { Badge } from '../../../shared/components/Badge';
 import { Button } from '../../../shared/components/Button';
 import { ScorePill } from '../../../shared/components/ScorePill';
-import { featuredAnime } from '../../../shared/mocks/animeData';
+import { animeData, featuredAnime } from '../../../shared/mocks/animeData';
 
 export function HeroBanner() {
+  const heroSlides = useMemo(() => [featuredAnime, ...animeData.filter((anime) => anime.id !== featuredAnime.id).slice(0, 5)], []);
+  const [activeSlide, setActiveSlide] = useState(0);
+  const [autoplayPaused, setAutoplayPaused] = useState(false);
+
+  useEffect(() => {
+    if (autoplayPaused) {
+      return undefined;
+    }
+
+    const interval = window.setInterval(() => {
+      setActiveSlide((current) => (current === heroSlides.length - 1 ? 0 : current + 1));
+    }, 6500);
+
+    return () => {
+      window.clearInterval(interval);
+    };
+  }, [autoplayPaused, heroSlides.length]);
+
+  const goToSlide = (direction: 'prev' | 'next') => {
+    setActiveSlide((current) => {
+      if (direction === 'prev') {
+        return current === 0 ? heroSlides.length - 1 : current - 1;
+      }
+
+      return current === heroSlides.length - 1 ? 0 : current + 1;
+    });
+  };
+
   return (
-    <section className="panel relative grid gap-6 overflow-hidden p-4 sm:p-5 lg:grid-cols-[1.15fr_0.85fr] lg:gap-8 lg:p-8">
-      <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_left,rgba(184,111,63,0.08),transparent_26%),radial-gradient(circle_at_bottom_right,rgba(122,79,53,0.14),transparent_30%)]" />
-      <div className="absolute inset-x-0 top-0 h-32 bg-gradient-to-b from-white/6 to-transparent" />
-      <div className="relative min-w-0 space-y-5 sm:space-y-6">
-        <div className="space-y-3">
+    <section className="hero-stage stack-animate">
+      <div className="hero-stage-header">
+        <div>
           <p className="section-kicker">Featured premiere</p>
-          <h1 className="max-w-3xl text-3xl font-semibold tracking-[-0.05em] text-[--color-text] sm:text-4xl md:text-5xl lg:text-6xl">Nocturnal stories framed with a warmer, cinematic glow.</h1>
-          <p className="section-copy">{featuredAnime.title} leads the homepage with layered navy atmosphere, editorial spacing, and a premium static presentation that feels curated instead of assembled.</p>
+          <h2 className="hero-stage-title">Editorial spotlight</h2>
         </div>
-        <div className="flex flex-wrap items-center gap-3">
-          <Badge status={featuredAnime.status} />
-          <ScorePill score={featuredAnime.score} />
-          <span className="min-w-0 text-sm text-[--color-text-soft]">{featuredAnime.year} • {featuredAnime.episodes} eps • {featuredAnime.studio}</span>
-        </div>
-        <div className="grid gap-3 text-sm text-[--color-text-soft] sm:grid-cols-2 lg:grid-cols-3">
-          <div className="panel-soft p-4">
-            <p className="eyebrow">Tone</p>
-            <p className="mt-2 text-[--color-text]">Atmospheric ember haze with restrained golden light.</p>
-          </div>
-          <div className="panel-soft p-4">
-            <p className="eyebrow">Focus</p>
-            <p className="mt-2 text-[--color-text]">Sharper hierarchy, less slab-heavy gray, more layered depth.</p>
-          </div>
-          <div className="panel-soft p-4">
-            <p className="eyebrow">Format</p>
-            <p className="mt-2 text-[--color-text]">Visual-only composition, static by design, zero behavioral clutter.</p>
-          </div>
-        </div>
-        <div className="flex flex-wrap gap-3">
-          <Button>Watch Preview</Button>
-          <Link to={`/${featuredAnime.id}`}><Button variant="outline">View Detail</Button></Link>
+
+        <div className="hero-carousel-controls">
+          <button type="button" className="carousel-control" aria-label="Previous spotlight" onClick={() => goToSlide('prev')}>
+            ←
+          </button>
+          <button type="button" className="carousel-control" aria-label="Next spotlight" onClick={() => goToSlide('next')}>
+            →
+          </button>
         </div>
       </div>
-      <div className="poster-hero min-w-0 min-h-[300px] sm:min-h-[340px]" style={{ backgroundColor: featuredAnime.accentColor }}>
-        <div className="poster-overlay-hero absolute inset-0" />
-        <div className="absolute inset-x-0 top-0 h-28 bg-gradient-to-b from-white/12 to-transparent" />
-        <div className="accent-divider absolute bottom-0 h-[3px] w-full" />
-        <div className="absolute inset-4 flex flex-col justify-between sm:inset-6">
-          <div className="flex flex-col items-start gap-3 sm:flex-row sm:items-start sm:justify-between sm:gap-4">
-            <div className="glass-chip">Nocturne spotlight</div>
-            <div className="glass-chip-wide max-w-full text-left">{featuredAnime.genres.join(' • ')}</div>
-          </div>
-          <div className="grid gap-4 md:grid-cols-[1fr_auto] md:items-end">
-            <div className="max-w-sm min-w-0">
-              <p className="eyebrow-soft text-[11px]">Now trending</p>
-              <p className="mt-3 text-4xl font-bold tracking-[0.16em] text-[--color-text] sm:text-5xl">CO</p>
-              <p className="mt-3 body-copy">A posterless hero that still feels lush because the composition does the heavy lifting.</p>
+
+      <div
+        className="hero-stage-viewport"
+        onMouseEnter={() => setAutoplayPaused(true)}
+        onMouseLeave={() => setAutoplayPaused(false)}
+        onFocus={() => setAutoplayPaused(true)}
+        onBlur={() => setAutoplayPaused(false)}
+      >
+        <div className="hero-stage-track" style={{ transform: `translateX(-${activeSlide * 100}%)` }}>
+          {heroSlides.map((anime, index) => (
+            <div key={anime.id} className={index === activeSlide ? 'hero-stage-slide hero-stage-slide-active' : 'hero-stage-slide hero-stage-slide-inactive'}>
+              <div className={index === activeSlide ? 'hero-copy hero-copy-active' : 'hero-copy hero-copy-inactive'} style={{ animationDelay: `${80 + index * 30}ms` }}>
+                <div className="space-y-4">
+                  <p className="section-kicker">{anime.status === 'airing' ? 'Now airing' : 'Featured selection'}</p>
+                  <h1 className="hero-headline">{anime.title} framed with a cleaner, sharper modern glow.</h1>
+                  <p className="hero-text">{anime.title} leads the experience with a freer editorial layout: stronger hierarchy, quieter surfaces, and compact modules that feel curated instead of boxed in.</p>
+                </div>
+
+                <div className="hero-meta">
+                  <Badge status={anime.status} />
+                  <ScorePill score={anime.score} />
+                  <span className="text-sm text-[--color-text-soft]">{anime.year} • {anime.episodes} eps • {anime.studio}</span>
+                </div>
+
+                <div className="hero-cta-row">
+                  <Button>Watch Preview</Button>
+                  <Link to={`/${anime.id}`}><Button variant="outline">View Detail</Button></Link>
+                </div>
+
+                <div className="editorial-note-grid">
+                  <div>
+                    <p className="eyebrow">Direction</p>
+                    <p className="hero-note-copy">Typography sits in open space while the featured module rotates as the visual anchor.</p>
+                  </div>
+                  <div>
+                    <p className="eyebrow">Palette</p>
+                    <p className="hero-note-copy">Gray leads, warm accents focus the eye, and cooler hints keep the interface current.</p>
+                  </div>
+                  <div>
+                    <p className="eyebrow">Motion</p>
+                    <p className="hero-note-copy">Carousel transitions keep the hero alive without adding noisy visual clutter.</p>
+                  </div>
+                </div>
+              </div>
+
+              <div className={index === activeSlide ? 'hero-side hero-side-active' : 'hero-side hero-side-inactive'}>
+                <article className="spotlight-card">
+                  <div className="spotlight-poster" style={{ backgroundColor: anime.accentColor }}>
+                    <div className="spotlight-overlay" />
+                    <div className="spotlight-topline">
+                      <span className="glass-chip">Spotlight</span>
+                      <span className="glass-chip-wide">{anime.genres.join(' • ')}</span>
+                    </div>
+
+                    <div className="spotlight-content-card">
+                      <p className="eyebrow">Now trending</p>
+                      <h2 className="spotlight-title">{anime.title}</h2>
+                      <p className="spotlight-copy">A more cinematic focal module with a borderless visual field, cleaner metadata, and a compact content surface.</p>
+                      <div className="spotlight-stats">
+                        <span>{anime.studio}</span>
+                        <span>{anime.episodes} eps</span>
+                      </div>
+                    </div>
+                  </div>
+                </article>
+              </div>
             </div>
-            <div className="glass-panel max-w-full md:max-w-xs">
-              <p className="eyebrow-soft">Featured frame</p>
-              <p className="mt-2">A hero composed like a cover spread: deeper atmosphere, softer glow, and cleaner metadata contrast.</p>
-            </div>
-          </div>
+          ))}
         </div>
+      </div>
+
+      <div className="hero-carousel-dots" aria-label="Spotlight pagination">
+        {heroSlides.map((anime, index) => (
+          <button
+            key={anime.id}
+            type="button"
+            className={index === activeSlide ? 'hero-carousel-dot hero-carousel-dot-active' : 'hero-carousel-dot'}
+            aria-label={`Go to ${anime.title}`}
+            onClick={() => setActiveSlide(index)}
+          >
+            <span className={index === activeSlide && !autoplayPaused ? 'hero-carousel-dot-progress hero-carousel-dot-progress-active' : 'hero-carousel-dot-progress'} />
+          </button>
+        ))}
       </div>
     </section>
   );

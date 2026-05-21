@@ -1,0 +1,68 @@
+.footer {
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+  padding: 3.2rem 0 1.2rem;
+  display: grid;
+  gap: 2rem;
+}
+
+.heroColumn {
+  max-width: 56rem;
+}
+
+.kicker,
+.sectionLabel,
+.meta {
+  color: var(--color-text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.28em;
+  font-size: 0.68rem;
+}
+
+.title {
+  margin-top: 0.85rem;
+  color: var(--color-text);
+  font-family: var(--font-display);
+  font-size: clamp(2rem, 4vw, 3.4rem);
+  line-height: 0.96;
+  letter-spacing: -0.06em;
+  font-weight: 600;
+}
+
+.linksColumn {
+  display: grid;
+  gap: 1.5rem;
+  grid-template-columns: repeat(auto-fit, minmax(14rem, 1fr));
+}
+
+.linkList,
+.pillList {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  margin-top: 0.9rem;
+}
+
+.navLink,
+.pill {
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 999px;
+  padding: 0.8rem 1rem;
+  background: rgba(255, 255, 255, 0.025);
+  color: var(--color-text-soft);
+  transition: background-color 180ms ease, border-color 180ms ease, transform 180ms ease;
+}
+
+.navLink:hover {
+  background: rgba(255, 255, 255, 0.05);
+  border-color: rgba(255, 255, 255, 0.14);
+  transform: translateY(-1px);
+}
+
+.bottomRow {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding-top: 0.8rem;
+}
