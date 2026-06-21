@@ -1,0 +1,27 @@
+{
+  "version": "7",
+  "dialect": "postgresql",
+  "entries": [
+    {
+      "idx": 0,
+      "version": "7",
+      "when": 1781634746032,
+      "tag": "0000_supreme_red_skull",
+      "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1781721146032,
+      "tag": "0001_ai_recommendation_searches",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1781916204106,
+      "tag": "0002_natural_warpath",
+      "breakpoints": true
+    }
+  ]
+}

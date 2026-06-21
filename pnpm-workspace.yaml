@@ -1,0 +1,12 @@
+packages:
+  - "apps/*"
+  - "packages/*"
+
+allowBuilds:
+  bufferutil: set this to true or false
+  electron: set this to true or false
+  esbuild: true
+  ip-set: set this to true or false
+  node-datachannel: set this to true or false
+  utf-8-validate: set this to true or false
+  utp-native: set this to true or false

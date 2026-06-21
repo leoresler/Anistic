@@ -1,0 +1,71 @@
+# Dependencies
+node_modules/
+
+# Build outputs
+dist/
+build/
+out/
+
+# TypeScript
+*.tsbuildinfo
+
+# Vite / bundler caches
+.vite/
+.vite-temp/
+.cache/
+
+# Tests / coverage
+coverage/
+.nyc_output/
+
+# Environment / secrets
+.env
+.env.*
+!.env.example
+!.env.*.example
+
+# Logs
+*.log
+*.pnpm-debug.log*
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Runtime files
+*.pid
+*.pid.lock
+*.seed
+
+# Local databases
+*.sqlite
+*.sqlite3
+*.db
+*.db-journal
+
+# OS files
+.DS_Store
+._*
+.Spotlight-V100
+.Trashes
+Thumbs.db
+ehthumbs.db
+desktop.ini
+*.lnk
+
+# Editors / IDE local state
+.idea/
+*.swp
+*.swo
+*~
+*.code-workspace
+
+# Agent/tool local state
+.atl/
+
+# pnpm local store, when configured inside the repo
+.pnpm-store/
+pnpm-store/
+
+# Keep these committed
+!pnpm-lock.yaml
+!packages/database/drizzle/

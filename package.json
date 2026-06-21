@@ -1,0 +1,24 @@
+{
+  "name": "multiprovider-auth-monorepo",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "packageManager": "pnpm@11.5.1",
+  "scripts": {
+    "dev": "pnpm --parallel --filter @template/backend --filter @template/frontend dev",
+    "dev:backend": "pnpm --filter @template/backend dev",
+    "dev:frontend": "pnpm --filter @template/frontend dev",
+    "dev:desktop": "concurrently -k -n BACKEND,FRONTEND,ELECTRON -c cyan,green,yellow \"pnpm --filter @template/backend exec tsx src/server.ts\" \"pnpm dev:frontend\" \"wait-on http-get://localhost:3333/health http://localhost:5173 && pnpm --filter @template/desktop dev\"",
+    "check": "pnpm -r check",
+    "test": "pnpm -r test",
+    "sync:animes": "pnpm --filter @template/backend run sync:animes",
+    "db:generate": "pnpm --filter @template/database db:generate",
+    "db:migrate": "pnpm --filter @template/database db:migrate"
+  },
+  "devDependencies": {
+    "concurrently": "^9.0.0",
+    "tsx": "^4.21.0",
+    "typescript": "^5.9.3",
+    "wait-on": "^8.0.0"
+  }
+}

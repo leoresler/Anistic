@@ -1,0 +1,196 @@
+@import url("https://fonts.googleapis.com/css2?family=Rubik:wght@300;400;500;600;700;800;900&display=swap");
+@import "tailwindcss";
+
+@theme {
+  --color-anime-main: #121211; /* Fondo absoluto */
+  --color-anime-surface: #1a1a19; /* Tarjetas, Chat, Contenedores */
+  --color-anime-input: #222221; /* Inputs, Hover de tarjetas */
+  --color-anime-border: #262625; /* Líneas divisorias sutiles */
+  --color-sabio: #87a987; /* Verde Sabio (Acento principal) */
+  --color-sabio-dim: #5b755b; /* Verde apagado (Bordes/Secundarios) */
+  --color-sabio-light: #b4cbb4; /* Verde pastel (Textos/Alertas) */
+  --color-cream-primary: #f4f3ef; /* Títulos y textos principales */
+  --color-cream-secondary: #9a9996; /* Sinopsis y textos secundarios */
+}
+
+:root {
+  color: #f4f3ef;
+  background: #121211;
+  font-family: "Rubik", ui-sans-serif, system-ui, sans-serif;
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+html,
+body {
+  font-family: "Rubik", ui-sans-serif, system-ui, sans-serif;
+  overflow-x: hidden;
+}
+
+body {
+  min-width: 320px;
+  min-height: 100vh;
+  margin: 0;
+}
+
+button,
+input,
+textarea,
+select {
+  font: inherit;
+}
+
+button {
+  cursor: pointer;
+}
+
+/* ── Number input: hide spin buttons ── */
+input::-webkit-outer-spin-button,
+input::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+
+input[type="number"] {
+  -moz-appearance: textfield;
+}
+
+/* ── Custom scrollbar: thin sabio overlay, auto-hide, vertical only ── */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(135, 169, 135, 0.5) transparent;
+}
+
+/* Vertical scrollbar: thin 6px sabio thumb */
+*::-webkit-scrollbar {
+  width: 6px;
+  height: 0;
+}
+
+/* Horizontal scrollbar: never visible */
+*::-webkit-scrollbar:horizontal {
+  display: none;
+  height: 0;
+}
+
+/* Explicit opt-out for JS/touch-driven horizontal scrollers (carousels). */
+.scrollbar-none {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+
+.scrollbar-none::-webkit-scrollbar {
+  display: none;
+  width: 0;
+  height: 0;
+}
+
+*::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+*::-webkit-scrollbar-thumb {
+  background: rgba(135, 169, 135, 0.5);
+  border-radius: 9999px;
+}
+
+*::-webkit-scrollbar-thumb:hover {
+  background: rgba(135, 169, 135, 0.7);
+}
+
+/* Firefox: overlay scrollbar (doesn't take space) */
+@supports (scrollbar-width: thin) {
+  * {
+    scrollbar-width: thin;
+    scrollbar-gutter: auto;
+  }
+}
+
+/* Prevent horizontal overflow globally — horizontal scroll is JS-driven only (carousels) */
+html,
+body,
+#root {
+  overflow-x: hidden;
+}
+
+/* ── Hide default HTML ornaments ── */
+/* Default select appearance */
+select {
+  -webkit-appearance: none;
+  -moz-appearance: none;
+  appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%239a9996' d='M6 8.825L1.175 4 2.238 2.938 6 6.7 9.763 2.938 10.825 4z'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 12px center;
+  background-size: 12px;
+  padding-right: 32px;
+}
+
+/* Remove default outline, use focus styles instead */
+:focus {
+  outline: none;
+}
+
+:focus-visible {
+  outline: 2px solid rgba(135, 169, 135, 0.7);
+  outline-offset: 2px;
+}
+
+/* Remove default list markers */
+ul, ol {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+
+/* Remove default anchor styling */
+a {
+  text-decoration: none;
+  color: inherit;
+}
+
+/* Remove default fieldset styling */
+fieldset {
+  border: none;
+  padding: 0;
+  margin: 0;
+}
+
+legend {
+  padding: 0;
+}
+
+/* Smooth scroll globally */
+html {
+  scroll-behavior: smooth;
+}
+
+.grain::before {
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  content: "";
+  opacity: 0.24;
+  background-image: radial-gradient(#87a987 0.7px, transparent 0.7px);
+  background-size: 9px 9px;
+  mix-blend-mode: soft-light;
+}
+
+@keyframes ai-card-enter {
+  from {
+    opacity: 0;
+    transform: translateY(18px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.ai-card-enter {
+  animation: ai-card-enter 420ms ease-out both;
+}
