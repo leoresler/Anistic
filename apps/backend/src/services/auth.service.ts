@@ -8,7 +8,7 @@ import { env } from "../env";
 import { verifyGoogleIdToken } from "../lib/google";
 import { hashPassword, verifyPassword } from "../lib/password";
 
-const { db } = createDb(env.DATABASE_URL);
+export const { db } = createDb(env.DATABASE_URL);
 
 const publicUser = (user: User): AuthUser => ({
   id: user.id,
@@ -17,12 +17,25 @@ const publicUser = (user: User): AuthUser => ({
   googleId: user.googleId,
   name: user.name,
   avatarUrl: user.avatarUrl,
+  isAdmin: user.isAdmin,
 });
 
 const issueAuthResponse = async (app: FastifyInstance, user: User): Promise<AuthResponse> => ({
   user: publicUser(user),
   token: await app.jwt.sign({ sub: user.id }, { expiresIn: "7d" }),
 });
+
+// Promotes the user to admin when their email matches ADMIN_EMAIL.
+// Returns true when the user was promoted. If ADMIN_EMAIL was unset at
+// registration time, the user will NOT be retroactively promoted until their
+// next login/register flow.
+export const ensureAdminFlag = async (userId: string, email: string | null): Promise<boolean> => {
+  if (email && email === env.ADMIN_EMAIL) {
+    await db.update(users).set({ isAdmin: true }).where(eq(users.id, userId));
+    return true;
+  }
+  return false;
+};
 
 export const getUserById = async (userId: string) => {
   const user = await db.query.users.findFirst({ where: eq(users.id, userId) });
@@ -43,6 +56,8 @@ export const registerEmail = async (
     .values({ email: input.email, password: await hashPassword(input.password) })
     .returning();
 
+  const promoted = await ensureAdminFlag(user.id, user.email);
+  if (promoted) user.isAdmin = true;
   return issueAuthResponse(app, user);
 };
 
@@ -56,6 +71,8 @@ export const loginEmail = async (
     throw new Error("Credenciales invalidas");
   }
 
+  const promoted = await ensureAdminFlag(user.id, user.email);
+  if (promoted) user.isAdmin = true;
   return issueAuthResponse(app, user);
 };
 
@@ -111,6 +128,8 @@ export const loginGoogle = async (app: FastifyInstance, input: { idToken: string
       .where(eq(users.id, existing.id))
       .returning();
 
+    const promoted = await ensureAdminFlag(updated.id, updated.email);
+    if (promoted) updated.isAdmin = true;
     return issueAuthResponse(app, updated);
   }
 
@@ -124,5 +143,7 @@ export const loginGoogle = async (app: FastifyInstance, input: { idToken: string
     })
     .returning();
 
+  const promoted = await ensureAdminFlag(user.id, user.email);
+  if (promoted) user.isAdmin = true;
   return issueAuthResponse(app, user);
 };

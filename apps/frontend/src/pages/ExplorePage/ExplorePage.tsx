@@ -18,12 +18,21 @@ export const ExplorePage = () => {
   const gridRef = useRef<HTMLDivElement>(null);
   const lastTrackedSearch = useRef("");
 
+  const view = (searchParams.get("view") as "catalog" | "upcoming") ?? "catalog";
+
   const apiParams = useMemo(() => {
     const next = new URLSearchParams(searchParams);
     if (!next.has("page")) next.set("page", "1");
     if (!next.has("limit")) next.set("limit", "24");
     return next;
   }, [searchParams]);
+
+  const switchTab = useCallback(
+    (newView: "catalog" | "upcoming") => {
+      setSearchParams({ view: newView, sort: "relevance", order: "desc" });
+    },
+    [setSearchParams],
+  );
 
   useEffect(() => {
     const query = apiParams.get("search")?.trim() ?? "";
@@ -100,6 +109,31 @@ export const ExplorePage = () => {
   return (
     <main className="min-h-screen text-cream-primary">
       <section className="relative z-10 mx-auto max-w-[1600px] px-5 py-6 sm:px-8 lg:px-10">
+        <div className="mb-4 flex gap-2">
+          <button
+            type="button"
+            onClick={() => switchTab("catalog")}
+            className={`rounded-full px-4 py-1.5 text-sm font-black transition ${
+              view === "catalog"
+                ? "bg-sabio text-anime-main"
+                : "border border-anime-border bg-anime-input text-cream-secondary hover:border-sabio-dim hover:text-cream-primary"
+            }`}
+          >
+            Catálogo
+          </button>
+          <button
+            type="button"
+            onClick={() => switchTab("upcoming")}
+            className={`rounded-full px-4 py-1.5 text-sm font-black transition ${
+              view === "upcoming"
+                ? "bg-sabio text-anime-main"
+                : "border border-anime-border bg-anime-input text-cream-secondary hover:border-sabio-dim hover:text-cream-primary"
+            }`}
+          >
+            Próximos
+          </button>
+        </div>
+
         <div className="flex flex-wrap items-center gap-2 lg:flex-nowrap lg:justify-between">
           <div className="hidden lg:flex lg:flex-1 lg:flex-wrap lg:items-center lg:gap-2">
             <ExploreFilters {...filterProps} />

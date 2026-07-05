@@ -1,4 +1,4 @@
-import { ArrowLeft, Bookmark, Compass, Home, LogOut, Puzzle, Settings, Sparkles, UserRound, Users } from "lucide-react";
+import { ArrowLeft, Bookmark, Compass, Home, LogOut, Puzzle, Settings, Shield, Sparkles, UserRound, Users } from "lucide-react";
 import { useEffect, useState } from "react";
 import { NavLink, useLocation, useNavigate } from "react-router-dom";
 
@@ -82,6 +82,24 @@ export const Sidebar = () => {
             <span className="text-center leading-tight">{item.label}</span>
           </NavLink>
         ))}
+
+        {user?.isAdmin && (
+          <div className="w-full border-t border-anime-border pt-2 mt-2">
+            <NavLink
+              to="/admin/catalog"
+              className={({ isActive }) =>
+                `flex w-full flex-col items-center gap-1 rounded-2xl px-2 py-3 text-[10px] font-black uppercase tracking-wider transition ${
+                  isActive
+                    ? "bg-anime-input text-cream-primary"
+                    : "text-cream-secondary hover:bg-anime-input/60 hover:text-cream-primary"
+                }`.trim()
+              }
+            >
+              <Shield size={20} />
+              <span className="text-center leading-tight">Admin</span>
+            </NavLink>
+          </div>
+        )}
       </nav>
 
       <div className="flex h-20 shrink-0 items-center justify-center border-t border-anime-border">

@@ -32,6 +32,7 @@ export type AuthUser = {
   googleId: string | null;
   name: string | null;
   avatarUrl: string | null;
+  isAdmin: boolean;
 };
 
 export type AuthResponse = {

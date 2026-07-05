@@ -138,6 +138,10 @@ select {
   outline-offset: 2px;
 }
 
+input[data-auth-field]:focus-visible {
+  outline: none;
+}
+
 /* Remove default list markers */
 ul, ol {
   list-style: none;

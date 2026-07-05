@@ -2,12 +2,13 @@ import type { FastifyPluginAsync } from "fastify";
 import { and, asc, desc, eq, sql } from "drizzle-orm";
 import { z } from "zod";
 
-import { animeEpisodes, animeGenres, animes, createDb, userAnimeLists, userAnimeProgress } from "@template/database";
+import { animeGenres, animes, createDb, userAnimeLists, userAnimeProgress } from "@template/database";
 import {
   animeProgressBodySchema,
   animeSeasons,
   animeSorts,
   animeStatuses,
+  animeVisibilityBodySchema,
   sortOrders,
   userAnimeListBodySchema,
   userAnimeListStatusSchema,
@@ -16,10 +17,12 @@ import {
 } from "@template/shared";
 
 import { env } from "../env";
-import { getAuthUserId, getOptionalAuthUserId, requireAuth, tryAuth } from "../lib/auth";
+import { getAuthUserId, getOptionalAuthUserId, isAdminUser, requireAdmin, requireAuth, tryAuth } from "../lib/auth";
 import { getAnimeById, getAnimeStats, listAnimeGenres, listAnimes } from "../services/anime.service";
+import { buildAnimeCardSql } from "../services/animeSql";
 import { recordUserEvent } from "../services/event.service";
 import { getBecauseYouWatched, getContinueWatching, getPopularCommunity, getTopWeek } from "../services/recommendation.service";
+import { getEpisodesFlat, getEpisodesPaged, JikanRateLimitError } from "../services/jikanEpisodes.service";
 
 type AnimeQuery = Record<string, string | string[] | undefined>;
 
@@ -43,45 +46,7 @@ const parseGenres = (value: string | string[] | undefined) => {
 const isOneOf = <T extends readonly string[]>(value: string | undefined, options: T): value is T[number] =>
   Boolean(value && options.includes(value));
 
-const animeCardSql = sql`
-  json_build_object(
-    'id', ${animes.id},
-    'title', ${animes.title},
-    'titleEnglish', ${animes.titleEnglish},
-    'titleJapanese', ${animes.titleJapanese},
-    'synopsis', ${animes.synopsis},
-    'imageUrl', ${animes.imageUrl},
-    'trailerUrl', ${animes.trailerUrl},
-    'episodes', ${animes.episodes},
-    'status', ${animes.status},
-    'score', ${animes.score},
-    'scoredBy', ${animes.scoredBy},
-    'rank', ${animes.rank},
-    'popularity', ${animes.popularity},
-    'year', ${animes.year},
-    'season', ${animes.season},
-    'studio', ${animes.studio},
-    'rating', ${animes.rating},
-    'duration', ${animes.duration},
-    'source', ${animes.source},
-    'malId', ${animes.malId},
-    'syncedAt', ${animes.syncedAt},
-    'createdAt', ${animes.createdAt},
-    'genres', coalesce((select array_agg(${animeGenres.genre} order by ${animeGenres.genre}) from ${animeGenres} where ${animeGenres.animeId} = ${animes.id}), '{}')
-  )
-`;
-
-const ensurePlaceholderEpisodes = async (animeId: number) => {
-  const anime = await db.query.animes.findFirst({ where: eq(animes.id, animeId) });
-  if (!anime?.episodes || anime.episodes < 1) return;
-
-  await db.execute(sql`
-    insert into ${animeEpisodes} (anime_id, season, episode, title)
-    select ${animeId}, 1, generated_episode, 'Episodio ' || generated_episode
-    from generate_series(1, ${anime.episodes}) generated_episode
-    on conflict (anime_id, season, episode) do nothing
-  `);
-};
+const animeCardSql = buildAnimeCardSql();
 
 const listRows = async (userId: string, status?: z.infer<typeof userAnimeListStatusSchema>) =>
   db
@@ -104,23 +69,24 @@ const listSummaries = async (userId: string | null) => {
 const animeRoutes: FastifyPluginAsync = async (app) => {
   app.get("/discovery", { preHandler: tryAuth }, async (request) => {
     const userId = getOptionalAuthUserId(request);
+    const viewerIsAdmin = await isAdminUser(request);
 
     try {
       const [continueWatching, topWeek, newEpisodesRows, popularRows, lists, becauseYouWatched] = await Promise.all([
         getContinueWatching(userId).catch((error) => { request.log.error({ err: error }, "[discovery] getContinueWatching failed"); return []; }),
-        getTopWeek().catch((error) => { request.log.error({ err: error }, "[discovery] getTopWeek failed"); return { fallback: true, items: [] as { anime: unknown; score: number; reasons: string[] }[] }; }),
-        db.execute<{ anime: unknown; latestEpisode: number | null; latestAiredAt: Date | null }>(sql`
-          select ${animeCardSql} as anime, max(${animeEpisodes.episode})::int as "latestEpisode", max(${animeEpisodes.airedAt}) as "latestAiredAt"
+        getTopWeek(viewerIsAdmin).catch((error) => { request.log.error({ err: error }, "[discovery] getTopWeek failed"); return { source: "fallback" as const, fallback: true, items: [] as { anime: unknown; score: number; reasons: string[] }[] }; }),
+        db.execute<{ anime: unknown; latestEpisode: null; latestAiredAt: null }>(sql`
+          select ${animeCardSql} as anime, null::int as "latestEpisode", null as "latestAiredAt"
           from ${animes}
-          left join ${animeEpisodes} on ${animeEpisodes.animeId} = ${animes.id}
-          where ${animes.status} = 'Airing' or ${animeEpisodes.airedAt} is not null
-          group by ${animes.id}
-          order by max(${animeEpisodes.airedAt}) desc nulls last, ${animes.syncedAt} desc
+          where ${animes.status} = 'Airing'
+            ${viewerIsAdmin ? sql`` : sql`and ${animes.hidden} = false`}
+            and ${animes.startDate} >= now() - interval '30 days'
+          order by ${animes.startDate} desc nulls last
           limit 12
-        `).catch((error) => { request.log.error({ err: error }, "[discovery] newEpisodes query failed"); return { rows: [] as { anime: unknown; latestEpisode: number | null; latestAiredAt: Date | null }[] }; }),
-        getPopularCommunity().catch((error) => { request.log.error({ err: error }, "[discovery] getPopularCommunity failed"); return []; }),
+        `).catch((error) => { request.log.error({ err: error }, "[discovery] newEpisodes query failed"); return { rows: [] as { anime: unknown; latestEpisode: null; latestAiredAt: null }[] }; }),
+        getPopularCommunity(viewerIsAdmin).catch((error) => { request.log.error({ err: error }, "[discovery] getPopularCommunity failed"); return []; }),
         listSummaries(userId).catch((error) => { request.log.error({ err: error }, "[discovery] listSummaries failed"); return { watching: [], completed: [], pending: [] }; }),
-        getBecauseYouWatched(userId).catch((error) => { request.log.error({ err: error }, "[discovery] getBecauseYouWatched failed"); return { sourceGenres: [], sourceStudios: [], items: [] as { anime: unknown; score: number; reasons: string[] }[] }; }),
+        getBecauseYouWatched(userId, viewerIsAdmin).catch((error) => { request.log.error({ err: error }, "[discovery] getBecauseYouWatched failed"); return { sourceGenres: [], sourceStudios: [], items: [] as { anime: unknown; score: number; reasons: string[] }[] }; }),
       ]);
 
       return {
@@ -144,11 +110,15 @@ const animeRoutes: FastifyPluginAsync = async (app) => {
     const query = request.query as AnimeQuery;
     const page = Math.max(1, parseIntParam(query.page, 1) ?? 1);
     const limit = Math.min(48, Math.max(1, parseIntParam(query.limit, 24) ?? 24));
-    const sort = isOneOf(first(query.sort), animeSorts) ? (first(query.sort) as AnimeSort) : "score";
+    const sort = isOneOf(first(query.sort), animeSorts) ? (first(query.sort) as AnimeSort) : "relevance";
     const defaultOrder = sort === "rank" ? "asc" : "desc";
     const order = isOneOf(first(query.order), sortOrders) ? (first(query.order) as SortOrder) : defaultOrder;
     const status = isOneOf(first(query.status), animeStatuses) ? first(query.status) : undefined;
     const season = isOneOf(first(query.season), animeSeasons) ? first(query.season) : undefined;
+    const view = isOneOf(first(query.view), ["catalog", "upcoming"] as const) ? (first(query.view) as "catalog" | "upcoming") : undefined;
+    const format = first(query.format)?.trim();
+    const studio = first(query.studio)?.trim();
+    const viewerIsAdmin = await isAdminUser(request);
 
     return listAnimes({
       page,
@@ -160,16 +130,33 @@ const animeRoutes: FastifyPluginAsync = async (app) => {
       season,
       sort,
       order,
+      viewerIsAdmin,
+      view,
+      format,
+      studio,
     });
   });
 
   app.get("/animes/genres", async () => ({ genres: await listAnimeGenres() }));
 
-  app.get("/animes/stats", async () => getAnimeStats());
+  app.get("/animes/stats", async (request) => getAnimeStats(await isAdminUser(request)));
+
+  app.get("/animes/studios", async () => {
+    const result = await db.execute<{ studio: string; count: number }>(sql`
+      SELECT ${animes.studio} AS studio, count(*)::int AS count
+      FROM ${animes}
+      WHERE ${animes.studio} IS NOT NULL AND ${animes.hidden} = false
+      GROUP BY ${animes.studio}
+      ORDER BY count DESC
+      LIMIT 20
+    `);
+    return { studios: result.rows };
+  });
 
   app.get("/animes/:id", async (request, reply) => {
     const { id } = request.params as { id: string };
-    const anime = await getAnimeById(Number.parseInt(id, 10));
+    const viewerIsAdmin = await isAdminUser(request);
+    const anime = await getAnimeById(Number.parseInt(id, 10), viewerIsAdmin);
 
     if (!anime) {
       return reply.status(404).send({ message: "Anime no encontrado" });
@@ -178,12 +165,55 @@ const animeRoutes: FastifyPluginAsync = async (app) => {
     return anime;
   });
 
+  app.patch("/animes/:id/visibility", { preHandler: requireAdmin }, async (request, reply) => {
+    const animeId = Number.parseInt((request.params as { id: string }).id, 10);
+    if (!Number.isFinite(animeId)) return reply.status(400).send({ message: "Anime inválido" });
+
+    const body = animeVisibilityBodySchema.safeParse(request.body);
+    if (!body.success) return reply.status(400).send({ message: "Cuerpo inválido" });
+
+    const anime = await db.query.animes.findFirst({ where: eq(animes.id, animeId) });
+    if (!anime) return reply.status(404).send({ message: "Anime no encontrado" });
+
+    await db
+      .update(animes)
+      .set({
+        hidden: body.data.hidden,
+        hiddenReason: body.data.hidden ? body.data.reason ?? "manual" : null,
+      })
+      .where(eq(animes.id, animeId));
+
+    return { message: "Visibilidad actualizada" };
+  });
+
   app.get("/animes/:id/episodes", async (request, reply) => {
     const animeId = Number.parseInt((request.params as { id: string }).id, 10);
     if (!Number.isFinite(animeId)) return reply.status(400).send({ message: "Anime inválido" });
 
-    await ensurePlaceholderEpisodes(animeId);
-    return db.select().from(animeEpisodes).where(eq(animeEpisodes.animeId, animeId)).orderBy(asc(animeEpisodes.season), asc(animeEpisodes.episode));
+    const anime = await db.query.animes.findFirst({ where: eq(animes.id, animeId), columns: { malId: true } });
+    if (!anime?.malId) return reply.status(404).send({ message: "Anime no encontrado o sin MAL ID" });
+
+    const pageQuery = (request.query as { page?: string }).page;
+    const page = pageQuery ? Number.parseInt(pageQuery, 10) : null;
+
+    try {
+      if (page !== null && Number.isFinite(page) && page > 0) {
+        const result = await getEpisodesPaged(animeId, anime.malId, page, db);
+        reply.header("x-cache-status", result.status);
+        return { pagination: result.pagination, data: result.data };
+      }
+
+      const result = await getEpisodesFlat(animeId, anime.malId, db);
+      reply.header("x-cache-status", result.status);
+      return result.episodes;
+    } catch (error: unknown) {
+      if (error instanceof JikanRateLimitError) {
+        reply.header("Retry-After", String(error.retryAfterSeconds));
+        return reply.status(503).send({ message: "Jikan rate limit alcanzado" });
+      }
+      request.log.error({ err: error }, "[episodes] Error al obtener episodios");
+      return reply.status(500).send({ message: "Error al obtener episodios" });
+    }
   });
 
   app.get("/animes/:id/progress", { preHandler: requireAuth }, async (request, reply) => {

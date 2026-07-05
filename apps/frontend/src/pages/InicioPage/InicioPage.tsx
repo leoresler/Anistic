@@ -101,7 +101,7 @@ export const InicioPage = () => {
               {data.newEpisodes.length ? (
                 <CarouselRow
                   title="Estrenos de la temporada"
-                  subtitle="Animes en emisión con nuevos episodios"
+                  subtitle="Estrenos reales de los últimos 30 días"
                   linkTo="/explorar"
                 >
                   {data.newEpisodes.map(({ anime }) => (
@@ -114,9 +114,11 @@ export const InicioPage = () => {
                 <CarouselRow
                   title="Top semanal"
                   subtitle={
-                    data.topWeek.fallback
-                      ? "Aún estamos juntando actividad; por ahora usamos ranking y popularidad."
-                      : "Basado en actividad real de los últimos 7 días."
+                    data.topWeek.source === "trending"
+                      ? "Top semanal — según AniList"
+                      : data.topWeek.fallback
+                        ? "Aún estamos juntando actividad; por ahora usamos ranking y popularidad."
+                        : "Basado en actividad real de los últimos 7 días."
                   }
                   linkTo="/explorar"
                 >

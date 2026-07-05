@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-export const animeSorts = ["score", "popularity", "year", "rank"] as const;
+export const animeSorts = ["score", "popularity", "year", "rank", "hidden", "relevance"] as const;
 export const sortOrders = ["asc", "desc"] as const;
 export const animeStatuses = ["Airing", "Finished Airing"] as const;
 export const animeSeasons = ["winter", "spring", "summer", "fall"] as const;
@@ -22,6 +22,7 @@ export const animeListQuerySchema = z.object({
   season: animeSeasonSchema.optional(),
   sort: animeSortSchema.default("score"),
   order: sortOrderSchema.optional(),
+  view: z.enum(["catalog", "upcoming"]).optional(),
 });
 
 export const animeProgressBodySchema = z.object({
@@ -36,6 +37,11 @@ export const userAnimeListBodySchema = z.object({
   status: userAnimeListStatusSchema,
 });
 
+export const animeVisibilityBodySchema = z.object({
+  hidden: z.boolean(),
+  reason: z.string().trim().max(200).optional(),
+});
+
 export type AnimeSort = z.infer<typeof animeSortSchema>;
 export type SortOrder = z.infer<typeof sortOrderSchema>;
 export type AnimeStatus = z.infer<typeof animeStatusSchema>;
@@ -44,6 +50,7 @@ export type UserAnimeListStatus = z.infer<typeof userAnimeListStatusSchema>;
 export type AnimeListQuery = z.infer<typeof animeListQuerySchema>;
 export type AnimeProgressBody = z.infer<typeof animeProgressBodySchema>;
 export type UserAnimeListBody = z.infer<typeof userAnimeListBodySchema>;
+export type AnimeVisibilityBody = z.infer<typeof animeVisibilityBodySchema>;
 
 export type Anime = {
   id: number;
@@ -67,6 +74,11 @@ export type Anime = {
   source: string | null;
   malId: number;
   kitsuId: string | null;
+  countryOfOrigin: string | null;
+  isAdult: boolean;
+  format: string | null;
+  relevanceScore: number | null;
+  startDate: string | null;
   syncedAt: string;
   createdAt: string;
   genres: string[];
@@ -84,6 +96,23 @@ export type Pagination = {
 export type AnimeListResponse = {
   data: Anime[];
   pagination: Pagination;
+};
+
+export type AdminAnime = Anime & {
+  hidden: boolean;
+  hiddenReason: string | null;
+};
+
+export type AdminAnimeListResponse = {
+  data: AdminAnime[];
+  pagination: Pagination;
+};
+
+export type AdminAnimeStats = {
+  total: number;
+  visible: number;
+  hidden: number;
+  hiddenByReason: Record<string, number>;
 };
 
 export type AnimeStats = {
@@ -128,6 +157,10 @@ export type AnimeEpisode = {
   thumbnailUrl: string | null;
   airedAt: string | null;
   createdAt: string;
+  filler?: boolean;
+  recap?: boolean;
+  score?: number | null;
+  titleJapanese?: string | null;
 };
 
 export type UserAnimeList = {
@@ -150,7 +183,7 @@ export type RecommendationItem = {
 
 export type DiscoveryResponse = {
   continueWatching: ContinueWatchingItem[];
-  topWeek: { fallback: boolean; items: RecommendationItem[] };
+  topWeek: { source: "internal" | "trending" | "fallback"; fallback: boolean; items: RecommendationItem[] };
   newEpisodes: Array<{ anime: Anime; latestEpisode: number | null; latestAiredAt: string | null }>;
   becauseYouWatched: { sourceGenres: string[]; sourceStudios: string[]; items: RecommendationItem[]; anime: Anime[] };
   popularAmongUsers: Array<{ anime: Anime; viewers: number; score: number; reasons: string[] }>;

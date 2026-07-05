@@ -1,5 +1,9 @@
+import { useQuery } from "@tanstack/react-query";
 import { ChevronDown, SlidersHorizontal, X } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
+
+import { SingleSelect } from "../../../components/SingleSelect";
+import { animeApi } from "../../../lib/api";
 
 const statusOptions = [
   { label: "En emisión", value: "Airing" },
@@ -14,10 +18,24 @@ const seasonOptions = [
 ];
 
 const sortOptions = [
+  { label: "Relevancia", value: "relevance" },
   { label: "Puntuación", value: "score" },
   { label: "Popularidad", value: "popularity" },
   { label: "Año", value: "year" },
   { label: "Ranking", value: "rank" },
+];
+
+const formatOptions = [
+  { label: "Serie", value: "TV" },
+  { label: "Película", value: "MOVIE" },
+  { label: "OVA", value: "OVA" },
+  { label: "ONA", value: "ONA" },
+  { label: "Especial", value: "SPECIAL" },
+];
+
+const orderOptions = [
+  { label: "Descendente", value: "desc" },
+  { label: "Ascendente", value: "asc" },
 ];
 
 export const genreValues = (params: URLSearchParams) =>
@@ -89,74 +107,6 @@ const MultiSelect = ({ label, options, selected, onToggle }: MultiSelectProps) =
   );
 };
 
-type SingleSelectProps = {
-  label: string;
-  options: { label: string; value: string }[];
-  allLabel: string;
-  currentValue: string;
-  onChange: (value: string) => void;
-};
-
-const SingleSelect = ({ label, options, allLabel, currentValue, onChange }: SingleSelectProps) => {
-  const [open, setOpen] = useState(false);
-  const ref = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    const handle = (e: MouseEvent) => {
-      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
-    };
-    if (open) document.addEventListener("mousedown", handle);
-    return () => document.removeEventListener("mousedown", handle);
-  }, [open]);
-
-  const currentLabel = currentValue
-    ? (options.find((o) => o.value === currentValue)?.label ?? allLabel)
-    : allLabel;
-  const active = currentValue !== "";
-
-  return (
-    <div ref={ref} className="relative">
-      <button
-        type="button"
-        onClick={() => setOpen((c) => !c)}
-        className={`inline-flex items-center gap-1.5 rounded-full px-3.5 py-1.5 text-xs font-black transition ${
-          active
-            ? "bg-sabio text-anime-main"
-            : "border border-anime-border bg-anime-input text-cream-secondary hover:border-sabio-dim hover:text-cream-primary"
-        }`}
-      >
-        {label}: {currentLabel}
-        <ChevronDown size={12} className={`transition ${open ? "rotate-180" : ""}`} />
-      </button>
-      {open ? (
-        <div className="absolute left-0 top-full z-30 mt-2 w-48 overflow-auto rounded-2xl border border-anime-border bg-anime-surface/95 p-2 shadow-2xl shadow-black/40 backdrop-blur">
-          <button
-            type="button"
-            onClick={() => { onChange(""); setOpen(false); }}
-            className={`flex w-full items-center gap-2 rounded-xl px-3 py-2 text-left text-sm font-bold transition ${
-              currentValue === "" ? "bg-sabio/20 text-sabio-light" : "text-cream-primary hover:bg-anime-input"
-            }`}
-          >
-            {allLabel}
-          </button>
-          {options.map((opt) => (
-            <button
-              key={opt.value}
-              type="button"
-              onClick={() => { onChange(opt.value); setOpen(false); }}
-              className={`flex w-full items-center gap-2 rounded-xl px-3 py-2 text-left text-sm font-bold transition ${
-                currentValue === opt.value ? "bg-sabio/20 text-sabio-light" : "text-cream-primary hover:bg-anime-input"
-              }`}
-            >
-              {opt.label}
-            </button>
-          ))}
-        </div>
-      ) : null}
-    </div>
-  );
-};
-
 type ExploreFiltersProps = {
   genres: string[];
   years: number[];
@@ -178,11 +128,24 @@ export const ExploreFilters = ({
   const currentStatus = params.get("status") ?? "";
   const currentSeason = params.get("season") ?? "";
   const currentYear = params.get("year") ?? "";
-  const currentSort = params.get("sort") ?? "score";
+  const currentSort = params.get("sort") ?? "relevance";
+  const currentOrder = params.get("order") ?? "desc";
+  const currentFormat = params.get("format") ?? "";
+  const currentStudio = params.get("studio") ?? "";
   const hasActiveFilters =
-    selectedGenres.length > 0 || currentStatus || currentSeason || currentYear || currentSort !== "score";
+    selectedGenres.length > 0 ||
+    currentStatus ||
+    currentSeason ||
+    currentYear ||
+    currentFormat ||
+    currentStudio ||
+    currentSort !== "relevance" ||
+    currentOrder !== "desc";
 
   const yearOptions = years.slice(0, 12).map((y) => ({ label: String(y), value: String(y) }));
+  const studiosQuery = useQuery({ queryKey: ["anime-studios"], queryFn: animeApi.studios });
+  const studioOptions =
+    studiosQuery.data?.studios.map((s) => ({ label: `${s.studio} (${s.count})`, value: s.studio })) ?? [];
 
   return (
     <div className="flex flex-wrap items-center gap-2">
@@ -213,11 +176,34 @@ export const ExploreFilters = ({
       />
 
       <SingleSelect
+        label="Formato"
+        options={formatOptions}
+        allLabel="Todos"
+        currentValue={currentFormat}
+        onChange={(v) => onSetParam("format", v)}
+      />
+
+      <SingleSelect
+        label="Estudio"
+        options={studioOptions}
+        allLabel="Todos"
+        currentValue={currentStudio}
+        onChange={(v) => onSetParam("studio", v)}
+      />
+
+      <SingleSelect
         label="Ordenar"
         options={sortOptions}
-        allLabel="Puntuación"
+        allLabel="Relevancia"
         currentValue={currentSort}
         onChange={(v) => onSetParam("sort", v)}
+      />
+
+      <SingleSelect
+        label="Dirección"
+        options={orderOptions}
+        currentValue={currentOrder}
+        onChange={(v) => onSetParam("order", v)}
       />
 
       {hasActiveFilters ? (

@@ -3,6 +3,7 @@ import jwt from "@fastify/jwt";
 import Fastify from "fastify";
 
 import { env } from "./env";
+import adminRoutes from "./routes/admin.routes";
 import aiRoutes from "./routes/ai.routes";
 import addonRoutes from "./routes/addon.routes";
 import animeRoutes from "./routes/anime.routes";
@@ -22,6 +23,7 @@ await app.register(jwt, {
 
 app.get("/health", async () => ({ ok: true }));
 await app.register(aiRoutes, { prefix: "/api/ai" });
+await app.register(adminRoutes, { prefix: "/api/admin" });
 await app.register(animeRoutes, { prefix: "/api" });
 await app.register(addonRoutes, { prefix: "/api" });
 await app.register(authRoutes, { prefix: "/api/auth" });

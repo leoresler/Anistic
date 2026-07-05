@@ -1,162 +1,332 @@
-import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 
 import { eq, sql } from "drizzle-orm";
 
-import { animeEpisodes, animeGenres, animes, createDb, type NewAnime } from "@template/database";
+import { animeGenres, animes, createDb, type NewAnime } from "@template/database";
 
-import { buildAnimeUpsertSet } from "./syncAnimes.utils";
+import {
+  buildAniListQuery,
+  buildAnimeUpsertSet,
+  mapAniListDuration,
+  mapAniListSeason,
+  mapAniListSource,
+  mapAniListStatus,
+  stripHtml,
+  type AniListFormat,
+  type AniListMedium,
+  type AniListPageResponse,
+} from "./syncAnimes.utils";
 
-const TOTAL_PAGES = 20;
-const LIMIT = 25;
-const REQUEST_DELAY_MS = 400;
-
-type JikanAnime = {
-  mal_id: number;
-  title: string;
-  title_english: string | null;
-  title_japanese: string | null;
-  synopsis: string | null;
-  images?: { jpg?: { large_image_url?: string | null } };
-  trailer?: { url?: string | null };
-  episodes: number | null;
-  status: string | null;
-  score: number | null;
-  scored_by: number | null;
-  rank: number | null;
-  popularity: number | null;
-  year: number | null;
-  season: string | null;
-  studios?: Array<{ name: string }>;
-  rating: string | null;
-  duration: string | null;
-  source: string | null;
-  genres?: Array<{ name: string }>;
-  external?: Array<{ name?: string; url?: string }>;
-};
-
-type JikanResponse = { data?: JikanAnime[] };
+const FORMATS: AniListFormat[] = ["TV", "MOVIE", "OVA", "ONA", "SPECIAL"];
+const ALLOWED_COUNTRIES = new Set(["JP", "KR", "CN"]);
+export const isAllowedCountry = (country: string | null | undefined) => ALLOWED_COUNTRIES.has(country ?? "");
+const PER_PAGE = 50;
+const MAX_PAGES_PER_FORMAT = 100;
+const REQUEST_DELAY_MS = 700;
+const BACKOFF_MS = [2000, 5000, 10000];
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
-const loadMalKitsuMapping = (): Map<string, string> | undefined => {
-  try {
-    const raw = readFileSync(new URL("../../../../data/mal-kitsu-mapping.json", import.meta.url), "utf-8");
-    const parsed = JSON.parse(raw) as Record<string, string>;
-    const map = new Map<string, string>();
-    for (const [malId, kitsuId] of Object.entries(parsed)) {
-      if (/^\d+$/.test(malId)) map.set(malId, kitsuId);
-    }
-    return map;
-  } catch (error) {
-    console.warn("No se pudo cargar el mapeo MAL→Kitsu:", error instanceof Error ? error.message : error);
-    return undefined;
-  }
+const parseLimit = (): number => {
+  const match = process.argv.find((arg) => /--limit=(\d+)/.test(arg));
+  return match ? Number(match.replace(/--limit=(\d+)/, "$1")) : Infinity;
 };
 
-const findExternalId = (anime: JikanAnime, provider: "kitsu" | "imdb") => {
-  const external = anime.external?.find((entry) => entry.name?.toLowerCase() === provider || entry.url?.includes(provider));
-  if (!external?.url) return null;
+const parseSkipCleanup = (): boolean => process.argv.includes("--skip-cleanup");
 
-  if (provider === "kitsu") {
-    return external.url.match(/anime\/(\d+)/i)?.[1] ?? null;
-  }
-
-  return external.url.match(/title\/(tt\d+)/i)?.[1] ?? null;
+const findRanking = (rankings: AniListMedium["rankings"], type: "RATED" | "POPULAR") => {
+  return rankings?.find((ranking) => ranking.type === type && ranking.allTime)?.rank ?? null;
 };
 
-const toAnimeRecord = (anime: JikanAnime, malKitsuMap?: Map<string, string>): NewAnime => {
-  const externalKitsuId = findExternalId(anime, "kitsu");
-  const mappedKitsuId = !externalKitsuId && malKitsuMap ? malKitsuMap.get(String(anime.mal_id)) ?? null : null;
+export const mapAniListMediumToAnime = (media: AniListMedium): NewAnime => {
+  const id = media.idMal!;
 
   return {
-    id: anime.mal_id,
-    malId: anime.mal_id,
-    title: anime.title,
-    titleEnglish: anime.title_english,
-    titleJapanese: anime.title_japanese,
-    synopsis: anime.synopsis,
-    imageUrl: anime.images?.jpg?.large_image_url ?? null,
-    trailerUrl: anime.trailer?.url ?? null,
-    episodes: anime.episodes,
-    status: anime.status,
-    score: anime.score === null ? null : anime.score.toFixed(2),
-    scoredBy: anime.scored_by,
-    rank: anime.rank,
-    popularity: anime.popularity,
-    year: anime.year,
-    season: anime.season,
-    studio: anime.studios?.[0]?.name ?? null,
-    rating: anime.rating,
-    duration: anime.duration,
-    source: anime.source,
-    kitsuId: externalKitsuId || mappedKitsuId,
-    imdbId: findExternalId(anime, "imdb"),
+    id,
+    malId: id,
+    title: media.title.romaji ?? media.title.english ?? media.title.native ?? "",
+    titleEnglish: media.title.english,
+    titleJapanese: media.title.native,
+    synopsis: stripHtml(media.description ?? ""),
+    imageUrl: media.coverImage?.extraLarge ?? null,
+    trailerUrl: null,
+    episodes: media.episodes,
+    status: mapAniListStatus(media.status),
+    score: media.averageScore != null ? (media.averageScore / 10).toFixed(2) : null,
+    scoredBy: null,
+    rank: findRanking(media.rankings, "RATED"),
+    popularity: findRanking(media.rankings, "POPULAR"),
+    year: media.seasonYear ?? media.startDate?.year ?? null,
+    season: mapAniListSeason(media.season),
+    studio:
+      media.studios?.nodes.find((studio) => studio.isAnimationStudio)?.name ??
+      media.studios?.nodes[0]?.name ??
+      null,
+    rating: null,
+    duration: mapAniListDuration(media.duration, media.format),
+    source: mapAniListSource(media.source),
+    kitsuId: null,
+    imdbId: null,
+    anilistId: media.id,
+    bannerUrl: media.bannerImage,
+    anilistPopularity: media.popularity,
+    countryOfOrigin: media.countryOfOrigin,
+    isAdult: media.isAdult,
+    startDate: media.startDate
+      ? new Date(Date.UTC(media.startDate.year ?? 1, (media.startDate.month ?? 1) - 1, media.startDate.day ?? 1))
+      : null,
+    format: media.format ?? null,
     syncedAt: new Date(),
   };
 };
 
-const main = async () => {
-  const { db, pool } = createDb(process.env.DATABASE_URL);
-  const malKitsuMap = loadMalKitsuMapping();
-  let totalUpserted = 0;
-  let totalSkipped = 0;
+const fetchPage = async (
+  format: AniListFormat,
+  page: number,
+): Promise<AniListPageResponse | null> => {
+  const { query, variables } = buildAniListQuery(format, page);
 
-  try {
-    for (let page = 1; page <= TOTAL_PAGES; page += 1) {
-      try {
-        process.stdout.write(`Syncing page ${page}/${TOTAL_PAGES}... `);
-        const response = await fetch(`https://api.jikan.moe/v4/top/anime?limit=${LIMIT}&page=${page}`);
+  for (let attempt = 0; attempt <= BACKOFF_MS.length; attempt += 1) {
+    try {
+      const response = await fetch("https://graphql.anilist.co", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ query, variables }),
+      });
 
-        if (!response.ok) {
-          throw new Error(`HTTP ${response.status}`);
+      if (response.status === 429) {
+        if (attempt < BACKOFF_MS.length) {
+          const delay = BACKOFF_MS[attempt]!;
+          console.warn(`Límite de tasa en formato ${format} página ${page}: reintentando en ${delay}ms`);
+          await sleep(delay);
+          continue;
         }
-
-        const body = (await response.json()) as JikanResponse;
-        const pageAnimes = body.data ?? [];
-
-        for (const anime of pageAnimes) {
-          const record = toAnimeRecord(anime, malKitsuMap);
-          await db
-            .insert(animes)
-            .values(record)
-            .onConflictDoUpdate({
-              target: animes.id,
-              set: buildAnimeUpsertSet(record),
-            });
-
-          await db.delete(animeGenres).where(eq(animeGenres.animeId, anime.mal_id));
-
-          const genres = [...new Set((anime.genres ?? []).map((genre) => genre.name).filter(Boolean))];
-          if (genres.length > 0) {
-            await db.insert(animeGenres).values(genres.map((genre) => ({ animeId: anime.mal_id, genre })));
-          }
-
-          if (anime.episodes && anime.episodes > 0) {
-            await db.execute(sql`
-              insert into ${animeEpisodes} (anime_id, season, episode, title)
-              select ${anime.mal_id}, 1, generated_episode, 'Episodio ' || generated_episode
-              from generate_series(1, ${anime.episodes}) generated_episode
-              on conflict (anime_id, season, episode) do nothing
-            `);
-          }
-        }
-
-        totalUpserted += pageAnimes.length;
-        console.log(`done (${pageAnimes.length} animes upserted)`);
-      } catch (error) {
-        totalSkipped += LIMIT;
-        console.error(`failed (${error instanceof Error ? error.message : "error desconocido"})`);
+        console.warn(`Error en formato ${format} página ${page}: límite de tasa agotado. Saltando página.`);
+        return null;
       }
 
-      if (page < TOTAL_PAGES) {
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}`);
+      }
+
+      return (await response.json()) as AniListPageResponse;
+    } catch (error) {
+      if (attempt < BACKOFF_MS.length) {
+        const delay = BACKOFF_MS[attempt]!;
+        console.warn(
+          `Error de red en formato ${format} página ${page}: reintentando en ${delay}ms (${error instanceof Error ? error.message : "error desconocido"})`,
+        );
+        await sleep(delay);
+        continue;
+      }
+      console.error(
+        `Error en formato ${format} página ${page}: ${error instanceof Error ? error.message : "error desconocido"}`,
+      );
+      return null;
+    }
+  }
+
+  return null;
+};
+
+const chunk = <T>(items: T[], size: number): T[][] => {
+  const result: T[][] = [];
+  for (let i = 0; i < items.length; i += size) {
+    result.push(items.slice(i, i + size));
+  }
+  return result;
+};
+
+export const buildPostSyncCleanupSql = (syncStartedAt: Date) => sql`
+  UPDATE ${animes}
+  SET hidden = true, hidden_reason = 'filtered_out_by_sync'
+  WHERE ${animes.syncedAt} < ${syncStartedAt} AND hidden = false
+`;
+
+type RelevanceScoreInput = {
+  score: string | null;
+  year: number | null;
+  status: string | null;
+  popPercentile: number;
+  currentYear: number;
+};
+
+export const calculateRelevanceScore = ({
+  score,
+  year,
+  status,
+  popPercentile,
+  currentYear,
+}: RelevanceScoreInput): number => {
+  const scoreTerm = (Number(score ?? 0) / 10) * 0.30;
+  const popTerm = popPercentile * 0.40;
+  const recencyTerm =
+    year == null ? 0 : Math.max(0, (year - 1990) / (currentYear - 1990)) * 0.15;
+  const statusMultiplier =
+    status === "Airing" ? 1.0 : status === "Finished Airing" ? 0.6 : status === "Not yet aired" ? 0.1 : 0.3;
+  const statusTerm = statusMultiplier * 0.15;
+
+  return (scoreTerm + popTerm + recencyTerm + statusTerm) * 100;
+};
+
+export const buildRelevanceUpdateSql = () => sql`
+  UPDATE ${animes} SET "relevance_score" = (
+    (COALESCE(${animes.score}, 0) / 10.0 * 0.30) +
+    (pp.pop_percentile * 0.40) +
+    (CASE WHEN ${animes.year} IS NULL THEN 0 ELSE GREATEST(0, (${animes.year} - 1990)::float / (EXTRACT(year FROM now()) - 1990)) END * 0.15) +
+    (CASE ${animes.status}
+      WHEN 'Airing' THEN 1.0
+      WHEN 'Finished Airing' THEN 0.6
+      WHEN 'Not yet aired' THEN 0.1
+      ELSE 0.3
+    END * 0.15)
+  ) * 100
+  FROM (
+    SELECT ${animes.id} AS id, PERCENT_RANK() OVER (ORDER BY ${animes.anilistPopularity} DESC NULLS LAST) AS pop_percentile
+    FROM ${animes}
+    WHERE ${animes.hidden} = false
+  ) pp
+  WHERE ${animes.id} = pp.id
+`;
+
+const main = async () => {
+  const { db, pool } = createDb(process.env.DATABASE_URL);
+  const limit = parseLimit();
+  const skipCleanup = parseSkipCleanup();
+  const syncStartedAt = new Date();
+  let totalUpserted = 0;
+  let totalSkipped = 0;
+  let totalSkippedCountry = 0;
+  let totalErrors = 0;
+  let hadErrors = false;
+
+  console.log(Number.isFinite(limit) ? `Límite: ${limit} páginas por formato` : "Límite: sin límite");
+
+  try {
+    for (const format of FORMATS) {
+      let formatUpserted = 0;
+      let formatSkipped = 0;
+      let formatSkippedCountry = 0;
+      let page = 1;
+
+      while (true) {
+        const response = await fetchPage(format, page);
+        let hasNextPage = false;
+
+        if (response === null) {
+          hadErrors = true;
+          totalErrors += 1;
+        } else {
+          const pageInfo = response.data.Page.pageInfo;
+          hasNextPage = pageInfo.hasNextPage;
+          const totalPages = Math.ceil(pageInfo.total / PER_PAGE);
+          console.log(`Sincronizando formato ${format} - página ${page}/${totalPages || "?"}`);
+
+          const idMalMedia = response.data.Page.media.filter((media) => media.idMal !== null);
+          const skippedOnPage = response.data.Page.media.length - idMalMedia.length;
+          formatSkipped += skippedOnPage;
+          totalSkipped += skippedOnPage;
+
+          const validMedia = idMalMedia.filter((media) => {
+            if (!isAllowedCountry(media.countryOfOrigin)) {
+              formatSkippedCountry += 1;
+              totalSkippedCountry += 1;
+              console.log(`Saltando anime ${media.id} — país de origen: ${media.countryOfOrigin}`);
+              return false;
+            }
+            return true;
+          });
+
+          const batches = chunk(validMedia, 100);
+
+          for (const batch of batches) {
+            try {
+              for (const media of batch) {
+                const record = mapAniListMediumToAnime(media);
+
+                await db
+                  .insert(animes)
+                  .values(record)
+                  .onConflictDoUpdate({
+                    target: animes.id,
+                    set: buildAnimeUpsertSet(record),
+                  });
+
+                const EXCLUDED_GENRES = new Set(["Hentai"]);
+                const genres = [...new Set(media.genres ?? [])].filter((g) => Boolean(g) && !EXCLUDED_GENRES.has(g)) as string[];
+                try {
+                  await db.delete(animeGenres).where(eq(animeGenres.animeId, record.id));
+                  if (genres.length > 0) {
+                    await db
+                      .insert(animeGenres)
+                      .values(genres.map((genre) => ({ animeId: record.id, genre })));
+                  }
+                } catch (error) {
+                  hadErrors = true;
+                  console.warn(
+                    `Error al sincronizar géneros para anime ${record.id}: ${error instanceof Error ? error.message : "error desconocido"}`,
+                  );
+                }
+              }
+
+              formatUpserted += batch.length;
+              totalUpserted += batch.length;
+            } catch (error) {
+              hadErrors = true;
+              totalErrors += 1;
+              console.error(
+                `Error al insertar lote en formato ${format} página ${page}: ${error instanceof Error ? error.message : "error desconocido"}`,
+              );
+            }
+          }
+        }
+
+        if (!hasNextPage || page >= MAX_PAGES_PER_FORMAT || (Number.isFinite(limit) && page >= limit)) {
+          break;
+        }
+
         await sleep(REQUEST_DELAY_MS);
+        page += 1;
+      }
+
+      console.log(`Formato ${format} completo: ${formatUpserted} sincronizados, ${formatSkipped} omitidos (idMal=null), ${formatSkippedCountry} omitidos por país`);
+    }
+
+    if (totalUpserted === 0) {
+      console.warn("Sincronización falló (0 animes subidos). Saltando limpieza post-sync y relevance score para no ocultar el catálogo existente.");
+    } else {
+      if (!skipCleanup) {
+        try {
+          const result = await db.execute(buildPostSyncCleanupSql(syncStartedAt));
+          console.log(`Limpieza post-sync: ${result.rowCount} animes marcados como ocultos (no matchearon los filtros nuevos)`);
+        } catch (error) {
+          console.warn(
+            `Limpieza post-sync falló: ${error instanceof Error ? error.message : "error desconocido"}`,
+          );
+        }
+      }
+
+      try {
+        console.log("Calculando relevance score...");
+        const relevanceResult = await db.execute(buildRelevanceUpdateSql());
+        console.log(`Relevance score calculado para ${relevanceResult.rowCount ?? 0} animes`);
+      } catch (error) {
+        console.warn(
+          `Cálculo de relevance score falló: ${error instanceof Error ? error.message : "error desconocido"}`,
+        );
       }
     }
   } finally {
     await pool.end();
   }
 
-  console.log(`Anime sync complete: ${totalUpserted} upserted, ${totalSkipped} skipped`);
+  console.log(
+    `Sincronización completa: ${totalUpserted} subidos, ${totalSkipped} omitidos (idMal=null), ${totalSkippedCountry} omitidos por país, ${totalErrors} páginas con error`,
+  );
+
+  process.exit(hadErrors ? 1 : 0);
 };
 
-await main();
+if (process.argv[1] === fileURLToPath(import.meta.url)) {
+  await main();
+}

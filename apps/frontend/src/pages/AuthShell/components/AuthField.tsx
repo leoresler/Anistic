@@ -11,7 +11,8 @@ export const AuthField = ({ icon, hasError = false, ...props }: FieldProps) => (
     <span className={hasError ? "text-red-200" : "text-sabio"}>{icon}</span>
     <input
       aria-invalid={hasError}
-      className="w-full bg-transparent outline-none placeholder:text-cream-secondary"
+      data-auth-field
+      className="w-full bg-transparent outline-none placeholder:text-cream-secondary focus-visible:outline-none"
       {...props}
     />
   </label>

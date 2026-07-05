@@ -21,8 +21,15 @@ export const useAuthStore = create<AuthState>()(
     }),
     {
       name: "template-auth",
-      version: 1,
+      version: 2,
       partialize: ({ user, token }) => ({ user, token }),
+      migrate: (persistedState: unknown) => {
+        const state = persistedState as { user?: { isAdmin?: boolean } | null };
+        if (state.user && typeof state.user.isAdmin !== "boolean") {
+          state.user.isAdmin = false;
+        }
+        return state;
+      },
     },
   ),
 );

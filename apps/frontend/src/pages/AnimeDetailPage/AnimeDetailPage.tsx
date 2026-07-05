@@ -1,6 +1,9 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useMemo, useState } from "react";
 import { useParams } from "react-router-dom";
+import toast from "react-hot-toast";
+
+import type { Anime } from "@template/shared";
 
 import { animeApi, eventsApi } from "../../lib/api";
 import { useDocumentTitle } from "../../hooks/useDocumentTitle";
@@ -8,19 +11,23 @@ import { useAuthStore } from "../../store/auth.store";
 import { AnimeDetailEpisodeSection } from "./components/AnimeDetailEpisodeSection";
 import { AnimeDetailErrorShell } from "./components/AnimeDetailErrorShell";
 import { AnimeDetailHeader } from "./components/AnimeDetailHeader";
+import { AnimeDetailSkeleton } from "./components/AnimeDetailSkeleton";
+
+export type AnimeDetail = Anime & { hidden?: boolean; hiddenReason?: string | null };
 
 export const AnimeDetailPage = () => {
   const { malId: malIdParam } = useParams<{ malId: string }>();
   const animeId = useMemo(() => Number.parseInt(malIdParam ?? "", 10), [malIdParam]);
   const token = useAuthStore((state) => state.token);
+  const isAdmin = useAuthStore((state) => state.user?.isAdmin ?? false);
   const queryClient = useQueryClient();
   const [season, setSeason] = useState(1);
   const [manualEpisode, setManualEpisode] = useState(1);
   const [listMessage, setListMessage] = useState<string | null>(null);
 
-  const animeQuery = useQuery({
+  const animeQuery = useQuery<AnimeDetail>({
     queryKey: ["anime", animeId],
-    queryFn: () => animeApi.detail(animeId),
+    queryFn: () => animeApi.detail(animeId) as Promise<AnimeDetail>,
     enabled: Number.isFinite(animeId),
   });
   const episodesQuery = useQuery({
@@ -70,8 +77,17 @@ export const AnimeDetailPage = () => {
     onError: (error) => setListMessage(error.message),
   });
 
+  const toggleVisibility = useMutation({
+    mutationFn: () => animeApi.setVisibility(animeId, { hidden: !(animeQuery.data?.hidden ?? false) }),
+    onSuccess: async () => {
+      toast.success("Visibilidad actualizada");
+      await queryClient.invalidateQueries({ queryKey: ["anime", animeId] });
+    },
+    onError: (error) => toast.error(error.message),
+  });
+
   if (!Number.isFinite(animeId)) return <AnimeDetailErrorShell>Anime inválido.</AnimeDetailErrorShell>;
-  if (animeQuery.isLoading) return <AnimeDetailErrorShell>Cargando anime...</AnimeDetailErrorShell>;
+  if (animeQuery.isLoading) return <AnimeDetailSkeleton />;
   if (animeQuery.error || !animeQuery.data) return <AnimeDetailErrorShell>No pudimos cargar este anime.</AnimeDetailErrorShell>;
 
   const anime = animeQuery.data;
@@ -86,6 +102,10 @@ export const AnimeDetailPage = () => {
           token={token}
           currentList={currentList}
           listMessage={listMessage}
+          isAdmin={isAdmin}
+          hidden={anime.hidden ?? false}
+          hiddenReason={anime.hiddenReason ?? null}
+          onToggleVisibility={toggleVisibility.mutate}
           onSaveList={saveList.mutate}
           onRemoveList={removeList.mutate}
         />

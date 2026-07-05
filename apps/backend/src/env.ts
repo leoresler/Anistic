@@ -16,6 +16,7 @@ const envSchema = z.object({
   GROQ_API_KEY: z.string().min(1),
   BACKEND_PORT: z.coerce.number().int().positive().default(3333),
   FRONTEND_URL: z.string().url().default("http://localhost:5173"),
+  ADMIN_EMAIL: z.string().email().optional(),
 });
 
 export const env = envSchema.parse(process.env);

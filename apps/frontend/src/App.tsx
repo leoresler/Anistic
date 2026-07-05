@@ -6,6 +6,7 @@ import { Toaster } from "react-hot-toast";
 import { AuthenticatedLayout } from "./components/layout/AuthenticatedLayout";
 import { ErrorBoundary } from "./components/ui/ErrorBoundary";
 import { AddonSettingsPage } from "./pages/AddonSettingsPage/AddonSettingsPage";
+import { AdminCatalogPage } from "./pages/AdminCatalogPage/AdminCatalogPage";
 import { AiRecommendationsPage } from "./pages/AiRecommendationsPage/AiRecommendationsPage";
 import { AnimeDetailPage } from "./pages/AnimeDetailPage/AnimeDetailPage";
 import { AuthShell } from "./pages/AuthShell/AuthShell";
@@ -17,6 +18,7 @@ import { PerfilPage } from "./pages/PerfilPage/PerfilPage";
 import { WatchPage } from "./pages/WatchPage/WatchPage";
 import { WatchPartyPage } from "./pages/WatchPartyPage/WatchPartyPage";
 import { authApi } from "./lib/api";
+import { RequireAdmin } from "./components/RequireAdmin";
 import { useAuthStore } from "./store/auth.store";
 
 const queryClient = new QueryClient();
@@ -25,7 +27,7 @@ export const App = () => (
   <QueryClientProvider client={queryClient}>
     <AppRoutes />
     <Toaster
-      position="bottom-right"
+      position="top-right"
       toastOptions={{
         style: {
           background: "#1a1a19",
@@ -140,6 +142,9 @@ const AppRoutes = () => (
 
       <Route element={<RequireAuth />}>
         <Route element={<AuthenticatedLayout />}>
+          <Route path="/admin" element={<RequireAdmin />}>
+            <Route path="catalog" element={<ErrorBoundary><AdminCatalogPage /></ErrorBoundary>} />
+          </Route>
           <Route path="/inicio" element={<ErrorBoundary><InicioPage /></ErrorBoundary>} />
           <Route path="/explorar" element={<ErrorBoundary><ExplorePage /></ErrorBoundary>} />
           <Route path="/mi-lista" element={<ErrorBoundary><MiListaPage /></ErrorBoundary>} />

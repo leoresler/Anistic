@@ -1,7 +1,7 @@
 import { and, asc, count, desc, eq, sql } from "drizzle-orm";
 
 import { animeGenres, animes, createDb } from "@template/database";
-import type { AnimeSort, SortOrder } from "@template/shared";
+import type { AdminAnimeStats, AnimeSort, SortOrder } from "@template/shared";
 
 import { env } from "../env";
 
@@ -19,14 +19,22 @@ export type ListAnimesInput = {
   season?: string;
   sort: AnimeSort;
   order: SortOrder;
+  viewerIsAdmin?: boolean;
+  visibility?: "all" | "visible" | "hidden";
+  hiddenReason?: string;
+  view?: "catalog" | "upcoming";
+  format?: string;
+  studio?: string;
 };
 
-const orderColumn = {
+export const orderColumn = {
   score: animes.score,
   popularity: animes.popularity,
   year: animes.year,
   rank: animes.rank,
-} satisfies Record<AnimeSort, typeof animes.score | typeof animes.popularity | typeof animes.year | typeof animes.rank>;
+  hidden: animes.hidden,
+  relevance: animes.relevanceScore,
+} satisfies Record<AnimeSort, typeof animes.score | typeof animes.popularity | typeof animes.year | typeof animes.rank | typeof animes.hidden | typeof animes.relevanceScore>;
 
 export const animePayload = {
   id: animes.id,
@@ -50,13 +58,24 @@ export const animePayload = {
   source: animes.source,
   malId: animes.malId,
   kitsuId: animes.kitsuId,
+  countryOfOrigin: animes.countryOfOrigin,
+  isAdult: animes.isAdult,
+  format: animes.format,
+  relevanceScore: animes.relevanceScore,
+  startDate: animes.startDate,
   syncedAt: animes.syncedAt,
   createdAt: animes.createdAt,
 };
 
+export const animePayloadAdmin = {
+  ...animePayload,
+  hidden: animes.hidden,
+  hiddenReason: animes.hiddenReason,
+};
+
 const genreArray = sql<string[]>`coalesce(array_remove(array_agg(${animeGenres.genre} order by ${animeGenres.genre}), null), '{}')`;
 
-const buildWhere = (input: ListAnimesInput) => {
+export const buildWhere = (input: ListAnimesInput) => {
   const filters = [];
 
   if (input.search) {
@@ -71,9 +90,26 @@ const buildWhere = (input: ListAnimesInput) => {
     );
   }
 
-  if (input.status) filters.push(eq(animes.status, input.status));
+  if (input.view === "upcoming") {
+    filters.push(eq(animes.status, "Not yet aired"));
+  } else if (input.view === "catalog" || !input.view) {
+    filters.push(sql`(${animes.status} != 'Not yet aired' OR ${animes.status} IS NULL)`);
+  }
+
+  if (input.status && !input.view) filters.push(eq(animes.status, input.status));
   if (input.year) filters.push(eq(animes.year, input.year));
   if (input.season) filters.push(eq(animes.season, input.season));
+
+  if (input.format) filters.push(eq(animes.format, input.format));
+  if (input.studio) filters.push(eq(animes.studio, input.studio));
+
+  if (input.visibility === "hidden") {
+    filters.push(eq(animes.hidden, true));
+  } else if (input.visibility === "visible" || !input.visibility) {
+    filters.push(eq(animes.hidden, false));
+  }
+
+  if (input.hiddenReason) filters.push(eq(animes.hiddenReason, input.hiddenReason));
 
   return filters.length > 0 ? and(...filters) : undefined;
 };
@@ -82,11 +118,12 @@ export const listAnimes = async (input: ListAnimesInput) => {
   const where = buildWhere(input);
   const offset = (input.page - 1) * input.limit;
   const direction = input.order === "asc" ? asc(orderColumn[input.sort]) : desc(orderColumn[input.sort]);
+  const payload = input.viewerIsAdmin ? animePayloadAdmin : animePayload;
 
   const [totalRow] = await db.select({ total: count() }).from(animes).where(where);
 
   const data = await db
-    .select({ ...animePayload, genres: genreArray })
+    .select({ ...payload, genres: genreArray })
     .from(animes)
     .leftJoin(animeGenres, eq(animeGenres.animeId, animes.id))
     .where(where)
@@ -111,9 +148,11 @@ export const listAnimes = async (input: ListAnimesInput) => {
   };
 };
 
-export const getAnimeById = async (id: number) => {
+export const getAnimeById = async (id: number, viewerIsAdmin = false) => {
+  const payload = viewerIsAdmin ? animePayloadAdmin : animePayload;
+
   const [anime] = await db
-    .select({ ...animePayload, genres: genreArray })
+    .select({ ...payload, genres: genreArray })
     .from(animes)
     .leftJoin(animeGenres, eq(animeGenres.animeId, animes.id))
     .where(eq(animes.id, id))
@@ -123,12 +162,16 @@ export const getAnimeById = async (id: number) => {
   return anime;
 };
 
+const EXCLUDED_GENRES = new Set(["Hentai"]);
+
 export const listAnimeGenres = async () => {
   const rows = await db.selectDistinct({ genre: animeGenres.genre }).from(animeGenres).orderBy(animeGenres.genre);
-  return rows.map((row) => row.genre);
+  return rows.map((row) => row.genre).filter((genre) => !EXCLUDED_GENRES.has(genre));
 };
 
-export const getAnimeStats = async () => {
+export const getAnimeStats = async (viewerIsAdmin = false) => {
+  const hiddenFilter = viewerIsAdmin ? sql`` : sql`where hidden = false`;
+
   const statsResult = await db.execute<{
     total: number;
     airing: number;
@@ -143,8 +186,9 @@ export const getAnimeStats = async () => {
       count(*) filter (where status = 'Finished Airing')::int as finished,
       max(score) as top_score,
       (select count(distinct genre)::int from anime_genres) as genres,
-      (select coalesce(array_agg(distinct year order by year desc), '{}') from animes where year is not null) as years
+      (select coalesce(array_agg(distinct year order by year desc), '{}') from animes where year is not null ${viewerIsAdmin ? sql`` : sql`and hidden = false`}) as years
     from animes
+    ${hiddenFilter}
   `);
   const stats = statsResult.rows[0];
 
@@ -155,5 +199,35 @@ export const getAnimeStats = async () => {
     topScore: stats?.top_score ?? null,
     genres: stats?.genres ?? 0,
     years: stats?.years ?? [],
+  };
+};
+
+export const getAdminAnimeStats = async (): Promise<AdminAnimeStats> => {
+  const result = await db.execute<{ total: number; visible: number; hidden: number }>(sql`
+    select
+      count(*)::int as total,
+      count(*) filter (where hidden = false)::int as visible,
+      count(*) filter (where hidden = true)::int as hidden
+    from animes
+  `);
+
+  const reasonResult = await db.execute<{ reason: string; count: number }>(sql`
+    select coalesce(hidden_reason, 'unknown') as reason, count(*)::int as count
+    from animes
+    where hidden = true
+    group by hidden_reason
+  `);
+
+  const hiddenByReason: Record<string, number> = {};
+  for (const row of reasonResult.rows) {
+    hiddenByReason[row.reason] = row.count;
+  }
+
+  const stats = result.rows[0];
+  return {
+    total: stats?.total ?? 0,
+    visible: stats?.visible ?? 0,
+    hidden: stats?.hidden ?? 0,
+    hiddenByReason,
   };
 };

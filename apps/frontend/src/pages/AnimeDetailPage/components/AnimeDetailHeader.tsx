@@ -1,4 +1,4 @@
-import { ArrowLeft, Bookmark, Check, Clock, ExternalLink, Play, X } from "lucide-react";
+import { ArrowLeft, Bookmark, Check, Clock, ExternalLink, Eye, EyeOff, Play, X } from "lucide-react";
 import { useState } from "react";
 import { Link } from "react-router-dom";
 
@@ -56,6 +56,10 @@ type AnimeDetailHeaderProps = {
   token: string | null;
   currentList: UserAnimeListStatus | undefined;
   listMessage: string | null;
+  isAdmin: boolean;
+  hidden: boolean;
+  hiddenReason: string | null;
+  onToggleVisibility: () => void;
   onSaveList: (status: "watching" | "completed" | "pending") => void;
   onRemoveList: () => void;
 };
@@ -66,6 +70,10 @@ export const AnimeDetailHeader = ({
   token,
   currentList,
   listMessage,
+  isAdmin,
+  hidden,
+  hiddenReason,
+  onToggleVisibility,
   onSaveList,
   onRemoveList,
 }: AnimeDetailHeaderProps) => {
@@ -239,6 +247,24 @@ export const AnimeDetailHeader = ({
               >
                 Tráiler <ExternalLink size={14} />
               </a>
+            ) : null}
+            {isAdmin ? (
+              <button
+                type="button"
+                onClick={onToggleVisibility}
+                className="inline-flex items-center gap-2 rounded-full border border-anime-border bg-anime-input px-5 py-2.5 text-sm font-black text-cream-primary transition hover:border-sabio-dim"
+                title={hiddenReason ? `Motivo: ${hiddenReason}` : undefined}
+              >
+                {hidden ? (
+                  <>
+                    <Eye size={16} /> Mostrar en catálogo
+                  </>
+                ) : (
+                  <>
+                    <EyeOff size={16} /> Ocultar del catálogo
+                  </>
+                )}
+              </button>
             ) : null}
           </div>
 

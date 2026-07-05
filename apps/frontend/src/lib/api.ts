@@ -1,4 +1,6 @@
 import type {
+  AdminAnimeListResponse,
+  AdminAnimeStats,
   AddonReportBody,
   Anime,
   AnimeEpisode,
@@ -7,6 +9,7 @@ import type {
   AnimeProgressBody,
   AnimeProgressResponse,
   AnimeStats,
+  AnimeVisibilityBody,
   AuthResponse,
   ContinueWatchingItem,
   CurrentUserResponse,
@@ -166,9 +169,13 @@ export const aiApi = {
 
 export const animeApi = {
   list: (searchParams: URLSearchParams) => get<AnimeListResponse>(`/api/animes?${searchParams.toString()}`),
+  listAdminAnimes: (searchParams: URLSearchParams) =>
+    authFetch<AdminAnimeListResponse>(`/api/admin/animes?${searchParams.toString()}`),
+  getAdminAnimeStats: () => authFetch<AdminAnimeStats>("/api/admin/animes/stats"),
   detail: (id: number) => get<Anime>(`/api/animes/${id}`),
   genres: () => get<{ genres: string[] }>("/api/animes/genres"),
   stats: () => get<AnimeStats>("/api/animes/stats"),
+  studios: () => get<{ studios: { studio: string; count: number }[] }>("/api/animes/studios"),
   discovery: () => authFetch<DiscoveryResponse>("/api/discovery"),
   episodes: (id: number) => get<AnimeEpisode[]>(`/api/animes/${id}/episodes`),
   progress: (id: number) => authFetch<AnimeProgressResponse>(`/api/animes/${id}/progress`),
@@ -179,6 +186,8 @@ export const animeApi = {
   saveList: (id: number, status: UserAnimeListBody["status"]) =>
     authFetch<UserAnimeList["list"]>(`/api/animes/${id}/list`, { method: "PUT", body: JSON.stringify({ status }) }),
   removeList: (id: number) => authFetch<OkResponse>(`/api/animes/${id}/list`, { method: "DELETE" }),
+  setVisibility: (id: number, body: AnimeVisibilityBody) =>
+    authFetch<OkResponse>(`/api/animes/${id}/visibility`, { method: "PATCH", body: JSON.stringify(body) }),
 };
 
 export const eventsApi = {

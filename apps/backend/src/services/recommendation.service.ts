@@ -1,9 +1,12 @@
-import { and, desc, eq, sql } from "drizzle-orm";
+import { and, desc, eq, inArray, sql } from "drizzle-orm";
 
 import { animeGenres, animeUserEvents, animes, createDb, userAnimeLists, userAnimeProgress } from "@template/database";
 import type { Anime, RecommendationItem } from "@template/shared";
 
 import { env } from "../env";
+import { animePayload } from "./anime.service";
+import { buildAnimeCardSql } from "./animeSql";
+import { getTrendingCache, setTrendingCache, type CachedItem } from "./trendingCache";
 
 const { db } = createDb(env.DATABASE_URL);
 
@@ -33,33 +36,7 @@ const weightCaseSql = sql`case ${animeUserEvents.eventType}
   else 1
 end`;
 
-const animeCardSql = sql`
-  json_build_object(
-    'id', ${animes.id},
-    'title', ${animes.title},
-    'titleEnglish', ${animes.titleEnglish},
-    'titleJapanese', ${animes.titleJapanese},
-    'synopsis', ${animes.synopsis},
-    'imageUrl', ${animes.imageUrl},
-    'trailerUrl', ${animes.trailerUrl},
-    'episodes', ${animes.episodes},
-    'status', ${animes.status},
-    'score', ${animes.score},
-    'scoredBy', ${animes.scoredBy},
-    'rank', ${animes.rank},
-    'popularity', ${animes.popularity},
-    'year', ${animes.year},
-    'season', ${animes.season},
-    'studio', ${animes.studio},
-    'rating', ${animes.rating},
-    'duration', ${animes.duration},
-    'source', ${animes.source},
-    'malId', ${animes.malId},
-    'syncedAt', ${animes.syncedAt},
-    'createdAt', ${animes.createdAt},
-    'genres', coalesce((select array_agg(${animeGenres.genre} order by ${animeGenres.genre}) from ${animeGenres} where ${animeGenres.animeId} = ${animes.id}), '{}')
-  )
-`;
+const animeCardSql = buildAnimeCardSql();
 
 const normalizeRank = (value: number | null, max = 1_000) => (value && value > 0 ? Math.max(0, (max - Math.min(value, max)) / max) : 0);
 const numericScore = (value: string | null) => (value ? Number.parseFloat(value) || 0 : 0);
@@ -133,7 +110,7 @@ const getRecentActivity = async () => {
   return new Map(rows.rows.map((row) => [row.animeId, row.activity]));
 };
 
-const getCandidates = async (favoriteGenres: string[], favoriteStudios: string[]) => {
+const getCandidates = async (favoriteGenres: string[], favoriteStudios: string[], viewerIsAdmin: boolean) => {
   const genreCondition = favoriteGenres.length
     ? sql`exists (select 1 from ${animeGenres} ag where ag.anime_id = ${animes.id} and ag.genre in (${sql.join(favoriteGenres.map((g) => sql`${g}`), sql`, `)}))`
     : sql`true`;
@@ -142,11 +119,12 @@ const getCandidates = async (favoriteGenres: string[], favoriteStudios: string[]
     ? sql`${animes.studio} in (${sql.join(favoriteStudios.map((s) => sql`${s}`), sql`, `)})`
     : sql`false`;
 
+  const hiddenFilter = viewerIsAdmin ? sql`true` : sql`${animes.hidden} = false`;
+
   const rows = await db.execute<{ anime: AnimeCard }>(sql`
     select ${animeCardSql} as anime
     from ${animes}
-    where ${genreCondition}
-       or ${studioCondition}
+    where (${genreCondition} or ${studioCondition}) and ${hiddenFilter}
     order by ${animes.score} desc nulls last, ${animes.popularity} asc nulls last, ${animes.rank} asc nulls last
     limit 220
   `);
@@ -182,9 +160,9 @@ const scoreCandidate = (anime: AnimeCard, profile: Awaited<ReturnType<typeof get
   return { anime, score: Math.round(score * 10) / 10, reasons: reasons.length ? reasons : ["Buen equilibrio de ranking y popularidad"] };
 };
 
-export const getBecauseYouWatched = async (userId: string | null, limit = 12) => {
+export const getBecauseYouWatched = async (userId: string | null, viewerIsAdmin = false, limit = 12) => {
   const [profile, recentActivity] = await Promise.all([getUserProfile(userId), getRecentActivity()]);
-  const candidates = await getCandidates(profile.genres, profile.studios);
+  const candidates = await getCandidates(profile.genres, profile.studios, viewerIsAdmin);
   const items = candidates
     .filter((anime) => !profile.excludedAnimeIds.has(anime.id))
     .map((anime) => scoreCandidate(anime, profile, recentActivity))
@@ -194,43 +172,147 @@ export const getBecauseYouWatched = async (userId: string | null, limit = 12) =>
   return { sourceGenres: profile.genres.slice(0, 6), sourceStudios: profile.studios.slice(0, 3), items };
 };
 
-export const getTopWeek = async (limit = 12) => {
+const getTopWeekInternal = async (viewerIsAdmin = false, limit = 12) => {
+  const hiddenFilter = viewerIsAdmin ? sql`true` : sql`${animes.hidden} = false`;
+
   const rows = await db.execute<{ anime: AnimeCard; activity: number }>(sql`
     select ${animeCardSql} as anime, sum(${weightCaseSql})::float as activity
     from ${animeUserEvents}
     inner join ${animes} on ${animes.id} = ${animeUserEvents.animeId}
-    where ${animeUserEvents.animeId} is not null and ${animeUserEvents.createdAt} > now() - interval '7 days'
+    where ${animeUserEvents.animeId} is not null and ${animeUserEvents.createdAt} > now() - interval '7 days' and ${hiddenFilter}
     group by ${animes.id}
     order by activity desc, ${animes.score} desc nulls last, ${animes.popularity} asc nulls last
     limit ${limit}
   `);
 
-  if (rows.rows.length > 0) {
-    return {
-      fallback: false,
-      items: rows.rows.map((row) => ({ anime: row.anime, score: Math.round(row.activity * 10) / 10, reasons: ["Actividad de los últimos 7 días"] })),
-    };
-  }
+  return rows.rows.map((row) => ({
+    anime: row.anime,
+    score: Math.round(row.activity * 10) / 10,
+    reasons: ["Actividad de los últimos 7 días"],
+  }));
+};
+
+const getTopWeekFallback = async (viewerIsAdmin = false, limit = 12) => {
+  const hiddenFilter = viewerIsAdmin ? sql`true` : sql`${animes.hidden} = false`;
 
   const fallbackRows = await db.execute<{ anime: AnimeCard }>(sql`
     select ${animeCardSql} as anime
     from ${animes}
+    where ${hiddenFilter}
     order by ${animes.score} desc nulls last, ${animes.popularity} asc nulls last
     limit ${limit}
   `);
 
-  return {
-    fallback: true,
-    items: fallbackRows.rows.map((row) => ({ anime: row.anime, score: numericScore(row.anime.score), reasons: ["Fallback por ranking y popularidad"] })),
-  };
+  return fallbackRows.rows.map((row) => ({
+    anime: row.anime,
+    score: numericScore(row.anime.score),
+    reasons: ["Fallback por ranking y popularidad"],
+  }));
 };
 
-export const getPopularCommunity = async (limit = 12) => {
+type AniListTrendingMedia = {
+  id: number;
+  idMal: number | null;
+  title: { romaji: string; english: string | null };
+  coverImage: { extraLarge: string };
+  episodes: number | null;
+  status: string;
+  averageScore: number | null;
+  seasonYear: number | null;
+  season: string | null;
+  format: string | null;
+  startDate: { year: number; month: number; day: number } | null;
+};
+
+export const fetchAniListTrending = async (): Promise<AniListTrendingMedia[]> => {
+  const response = await fetch("https://graphql.anilist.co", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      query: `query { Page(perPage: 12) { media(type: ANIME, sort: [TRENDING_DESC], isAdult: false, popularity_greater: 500) { id idMal title { romaji english } coverImage { extraLarge } episodes status averageScore seasonYear season format startDate { year month day } } } }`,
+    }),
+  });
+
+  if (!response.ok) throw new Error("AniList trending fetch failed");
+
+  const body = (await response.json()) as { data: { Page: { media: AniListTrendingMedia[] } } };
+  return body.data.Page.media;
+};
+
+type TopWeekDeps = {
+  countRecentEvents: () => Promise<number>;
+  getInternalItems: (viewerIsAdmin: boolean, limit: number) => Promise<RecommendationItem[]>;
+  getFallbackItems: (viewerIsAdmin: boolean, limit: number) => Promise<RecommendationItem[]>;
+  getCache: () => { items: CachedItem[]; fetchedAt: number } | null;
+  fetchTrending: () => Promise<AniListTrendingMedia[]>;
+  setCache: (items: CachedItem[]) => void;
+};
+
+const defaultTopWeekDeps = (): TopWeekDeps => ({
+  countRecentEvents: async () => {
+    const result = await db.execute<{ cnt: number }>(sql`
+      SELECT count(*)::int AS cnt FROM ${animeUserEvents} WHERE ${animeUserEvents.createdAt} > now() - interval '7 days'
+    `);
+    return result.rows[0]?.cnt ?? 0;
+  },
+  getInternalItems: getTopWeekInternal,
+  getFallbackItems: getTopWeekFallback,
+  getCache: getTrendingCache,
+  fetchTrending: fetchAniListTrending,
+  setCache: setTrendingCache,
+});
+
+export const getTopWeek = async (
+  viewerIsAdmin = false,
+  limit = 12,
+  deps: TopWeekDeps = defaultTopWeekDeps(),
+): Promise<{ source: "internal" | "trending" | "fallback"; fallback: boolean; items: RecommendationItem[] }> => {
+  const count = await deps.countRecentEvents();
+
+  if (count >= 50) {
+    return { source: "internal", fallback: false, items: await deps.getInternalItems(viewerIsAdmin, limit) };
+  }
+
+  const cached = deps.getCache();
+  if (cached) {
+    return { source: "trending", fallback: false, items: cached.items as RecommendationItem[] };
+  }
+
+  try {
+    const trending = await deps.fetchTrending();
+    const anilistIds = trending.map((m) => m.id);
+    const dbAnimes =
+      anilistIds.length > 0
+        ? await db
+            .select({ ...animePayload, anilistId: animes.anilistId, genres: sql<string[]>`coalesce(array_remove(array_agg(${animeGenres.genre} order by ${animeGenres.genre}), null), '{}')` })
+            .from(animes)
+            .leftJoin(animeGenres, eq(animeGenres.animeId, animes.id))
+            .where(inArray(animes.anilistId, anilistIds))
+            .groupBy(animes.id)
+        : [];
+
+    const items = trending
+      .map((m) => {
+        const dbAnime = dbAnimes.find((a) => a.anilistId === m.id);
+        return dbAnime ? { anime: dbAnime as unknown as Anime, score: 0, reasons: ["Trending en AniList"] } : null;
+      })
+      .filter((item): item is RecommendationItem => item != null);
+
+    deps.setCache(items);
+    return { source: "trending", fallback: false, items };
+  } catch {
+    return { source: "fallback", fallback: true, items: await deps.getFallbackItems(viewerIsAdmin, limit) };
+  }
+};
+
+export const getPopularCommunity = async (viewerIsAdmin = false, limit = 12) => {
+  const hiddenFilter = viewerIsAdmin ? sql`true` : sql`${animes.hidden} = false`;
+
   const rows = await db.execute<{ anime: AnimeCard; viewers: number; activity: number }>(sql`
     select ${animeCardSql} as anime, count(distinct ${animeUserEvents.userId})::int as viewers, sum(${weightCaseSql})::float as activity
     from ${animeUserEvents}
     inner join ${animes} on ${animes.id} = ${animeUserEvents.animeId}
-    where ${animeUserEvents.animeId} is not null
+    where ${animeUserEvents.animeId} is not null and ${hiddenFilter}
     group by ${animes.id}
     order by sum(case when ${animeUserEvents.createdAt} > now() - interval '30 days' then ${weightCaseSql} else 0 end) desc, activity desc
     limit ${limit}
@@ -238,7 +320,13 @@ export const getPopularCommunity = async (limit = 12) => {
 
   if (rows.rows.length > 0) return rows.rows.map((row) => ({ anime: row.anime, viewers: row.viewers, score: Math.round(row.activity * 10) / 10, reasons: ["Actividad reciente de la comunidad"] }));
 
-  const fallbackRows = await db.select({ progress: userAnimeProgress, anime: animes }).from(userAnimeProgress).innerJoin(animes, eq(animes.id, userAnimeProgress.animeId)).orderBy(desc(userAnimeProgress.updatedAt)).limit(limit);
+  const fallbackRows = await db
+    .select({ progress: userAnimeProgress, anime: animes })
+    .from(userAnimeProgress)
+    .innerJoin(animes, eq(animes.id, userAnimeProgress.animeId))
+    .where(viewerIsAdmin ? undefined : eq(animes.hidden, false))
+    .orderBy(desc(userAnimeProgress.updatedAt))
+    .limit(limit);
   return fallbackRows.map((row) => ({ anime: { ...row.anime, genres: [] } as unknown as AnimeCard, viewers: 1, score: 0, reasons: ["Fallback por progreso guardado"] }));
 };
 

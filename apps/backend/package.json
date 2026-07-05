@@ -6,7 +6,7 @@
   "scripts": {
     "dev": "tsx watch src/server.ts",
     "check": "tsc --noEmit",
-    "test": "node --test --import tsx src/lib/*.test.ts src/services/*.test.ts",
+    "test": "node --test --import tsx src/lib/*.test.ts src/services/*.test.ts src/jobs/*.test.ts src/routes/*.test.ts",
     "sync:animes": "node --env-file .env --import tsx src/jobs/syncAnimes.ts"
   },
   "dependencies": {

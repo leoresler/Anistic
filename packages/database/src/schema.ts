@@ -1,6 +1,7 @@
 import { relations, sql } from "drizzle-orm";
 import {
   boolean,
+  date,
   index,
   integer,
   jsonb,
@@ -32,6 +33,7 @@ export const users = pgTable(
     googleId: text("google_id"),
     name: text("name"),
     avatarUrl: text("avatar_url"),
+    isAdmin: boolean("is_admin").default(false).notNull(),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
@@ -83,19 +85,35 @@ export const animes = pgTable(
     malId: integer("mal_id").notNull(),
     kitsuId: text("kitsu_id"),
     imdbId: text("imdb_id"),
+    anilistId: integer("anilist_id"),
+    bannerUrl: text("banner_url"),
+    anilistPopularity: integer("anilist_popularity"),
+    hidden: boolean("hidden").default(false).notNull(),
+    countryOfOrigin: text("country_of_origin"),
+    isAdult: boolean("is_adult").default(false).notNull(),
+    hiddenReason: text("hidden_reason"),
+    startDate: date("start_date", { mode: "date" }),
+    format: text("format"),
+    relevanceScore: numeric("relevance_score", { precision: 6, scale: 2 }),
     syncedAt: timestamp("synced_at", { withTimezone: true }).notNull().defaultNow(),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [
     uniqueIndex("animes_mal_id_unique_idx").on(table.malId),
+    uniqueIndex("animes_anilist_id_unique_idx").on(table.anilistId),
+    index("animes_anilist_popularity_idx").on(table.anilistPopularity.desc()),
     index("animes_score_idx").on(table.score.desc()),
     index("animes_popularity_idx").on(table.popularity.asc()),
     index("animes_year_idx").on(table.year.desc()),
     index("animes_status_idx").on(table.status),
+    index("animes_hidden_idx").on(table.hidden),
     index("animes_search_idx").using(
       "gin",
       sql`to_tsvector('spanish', coalesce(${table.title}, '') || ' ' || coalesce(${table.synopsis}, ''))`,
     ),
+    index("animes_start_date_idx").on(table.startDate.desc()),
+    index("animes_format_idx").on(table.format),
+    index("animes_relevance_score_idx").on(table.relevanceScore.desc()),
   ],
 );
 
@@ -190,6 +208,23 @@ export const animeEpisodes = pgTable(
   ],
 );
 
+export const animeEpisodesCache = pgTable(
+  "anime_episodes_cache",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    animeId: integer("anime_id")
+      .notNull()
+      .references(() => animes.id, { onDelete: "cascade" }),
+    page: integer("page").notNull(),
+    data: jsonb("data").notNull(),
+    cachedAt: timestamp("cached_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    uniqueIndex("anime_episodes_cache_anime_page_unique_idx").on(table.animeId, table.page),
+    index("anime_episodes_cache_anime_idx").on(table.animeId),
+  ],
+);
+
 export const userStreamHistory = pgTable(
   "user_stream_history",
   {
@@ -256,8 +291,23 @@ export const animesRelations = relations(animes, ({ many }) => ({
   progress: many(userAnimeProgress),
   lists: many(userAnimeLists),
   canonicalEpisodes: many(animeEpisodes),
+  episodesCache: many(animeEpisodesCache),
   streamHistory: many(userStreamHistory),
   userEvents: many(animeUserEvents),
+}));
+
+export const animeEpisodesRelations = relations(animeEpisodes, ({ one }) => ({
+  anime: one(animes, {
+    fields: [animeEpisodes.animeId],
+    references: [animes.id],
+  }),
+}));
+
+export const animeEpisodesCacheRelations = relations(animeEpisodesCache, ({ one }) => ({
+  anime: one(animes, {
+    fields: [animeEpisodesCache.animeId],
+    references: [animes.id],
+  }),
 }));
 
 export const animeGenresRelations = relations(animeGenres, ({ one }) => ({
@@ -313,12 +363,7 @@ export const userAnimeListsRelations = relations(userAnimeLists, ({ one }) => ({
   }),
 }));
 
-export const animeEpisodesRelations = relations(animeEpisodes, ({ one }) => ({
-  anime: one(animes, {
-    fields: [animeEpisodes.animeId],
-    references: [animes.id],
-  }),
-}));
+
 
 export const userStreamHistoryRelations = relations(userStreamHistory, ({ one }) => ({
   user: one(users, {
@@ -366,6 +411,8 @@ export type UserAnimeProgress = typeof userAnimeProgress.$inferSelect;
 export type NewUserAnimeProgress = typeof userAnimeProgress.$inferInsert;
 export type UserAnimeList = typeof userAnimeLists.$inferSelect;
 export type AnimeEpisode = typeof animeEpisodes.$inferSelect;
+export type AnimeEpisodesCache = typeof animeEpisodesCache.$inferSelect;
+export type NewAnimeEpisodesCache = typeof animeEpisodesCache.$inferInsert;
 export type UserStreamHistory = typeof userStreamHistory.$inferSelect;
 export type AnimeUserEvent = typeof animeUserEvents.$inferSelect;
 export type NewAnimeUserEvent = typeof animeUserEvents.$inferInsert;
