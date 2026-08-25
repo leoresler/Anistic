@@ -1,162 +1,114 @@
-import { readFileSync } from "node:fs";
+import { pathToFileURL } from "node:url";
 
 import { eq, sql } from "drizzle-orm";
 
-import { animeEpisodes, animeGenres, animes, createDb, type NewAnime } from "@template/database";
+import { animeEpisodes, animeGenres, animes, createDb } from "@template/database";
 
+import { createAniListClient, fetchAniListCatalog } from "./anilist/client";
+import { filterAniListMedia } from "./anilist/filters";
+import { mapAniListMediaToAnime } from "./anilist/mapper";
+import { computeRelevanceScore } from "./anilist/relevance";
+import { resetAnimeCatalog } from "./anilist/reset";
+import { createDiscardCounts, type AniListMedia } from "./anilist/types";
 import { buildAnimeUpsertSet } from "./syncAnimes.utils";
 
-const TOTAL_PAGES = 20;
-const LIMIT = 25;
-const REQUEST_DELAY_MS = 400;
+type SyncOptions = { reset?: boolean; media?: AniListMedia[] };
 
-type JikanAnime = {
-  mal_id: number;
-  title: string;
-  title_english: string | null;
-  title_japanese: string | null;
-  synopsis: string | null;
-  images?: { jpg?: { large_image_url?: string | null } };
-  trailer?: { url?: string | null };
-  episodes: number | null;
-  status: string | null;
-  score: number | null;
-  scored_by: number | null;
-  rank: number | null;
-  popularity: number | null;
-  year: number | null;
-  season: string | null;
-  studios?: Array<{ name: string }>;
-  rating: string | null;
-  duration: string | null;
-  source: string | null;
-  genres?: Array<{ name: string }>;
-  external?: Array<{ name?: string; url?: string }>;
-};
+const MAX_CATALOG_SIZE = 6_000;
 
-type JikanResponse = { data?: JikanAnime[] };
+export const dedupeMedia = (media: AniListMedia[]) => {
+  const byMal = new Map<number, AniListMedia>();
+  const malByAniList = new Map<number, number>();
 
-const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+  const relevance = (item: AniListMedia) => computeRelevanceScore(item);
+  const mergeGenres = (left: string[], right: string[]) => [...new Set([...left, ...right])];
 
-const loadMalKitsuMapping = (): Map<string, string> | undefined => {
-  try {
-    const raw = readFileSync(new URL("../../../../data/mal-kitsu-mapping.json", import.meta.url), "utf-8");
-    const parsed = JSON.parse(raw) as Record<string, string>;
-    const map = new Map<string, string>();
-    for (const [malId, kitsuId] of Object.entries(parsed)) {
-      if (/^\d+$/.test(malId)) map.set(malId, kitsuId);
+  for (const item of media) {
+    if (!item.idMal) continue;
+    const malKey = malByAniList.get(item.id) ?? item.idMal;
+    const existing = byMal.get(malKey);
+
+    if (!existing) {
+      byMal.set(malKey, item);
+      malByAniList.set(item.id, malKey);
+      continue;
     }
-    return map;
-  } catch (error) {
-    console.warn("No se pudo cargar el mapeo MAL→Kitsu:", error instanceof Error ? error.message : error);
-    return undefined;
-  }
-};
 
-const findExternalId = (anime: JikanAnime, provider: "kitsu" | "imdb") => {
-  const external = anime.external?.find((entry) => entry.name?.toLowerCase() === provider || entry.url?.includes(provider));
-  if (!external?.url) return null;
-
-  if (provider === "kitsu") {
-    return external.url.match(/anime\/(\d+)/i)?.[1] ?? null;
+    const genres = mergeGenres(existing.genres, item.genres);
+    const stronger = relevance(item) > relevance(existing) ? item : existing;
+    byMal.set(malKey, { ...stronger, genres });
+    malByAniList.set(item.id, malKey);
   }
 
-  return external.url.match(/title\/(tt\d+)/i)?.[1] ?? null;
+  return [...byMal.values()];
 };
 
-const toAnimeRecord = (anime: JikanAnime, malKitsuMap?: Map<string, string>): NewAnime => {
-  const externalKitsuId = findExternalId(anime, "kitsu");
-  const mappedKitsuId = !externalKitsuId && malKitsuMap ? malKitsuMap.get(String(anime.mal_id)) ?? null : null;
+export const selectCatalogMedia = (media: AniListMedia[], maxCatalogSize = MAX_CATALOG_SIZE) => {
+  const discards = createDiscardCounts();
+  const selected = dedupeMedia(media)
+    .filter((item) => {
+      const filter = filterAniListMedia(item);
+      if (!filter.keep) {
+        discards[filter.reason] += 1;
+        return false;
+      }
 
-  return {
-    id: anime.mal_id,
-    malId: anime.mal_id,
-    title: anime.title,
-    titleEnglish: anime.title_english,
-    titleJapanese: anime.title_japanese,
-    synopsis: anime.synopsis,
-    imageUrl: anime.images?.jpg?.large_image_url ?? null,
-    trailerUrl: anime.trailer?.url ?? null,
-    episodes: anime.episodes,
-    status: anime.status,
-    score: anime.score === null ? null : anime.score.toFixed(2),
-    scoredBy: anime.scored_by,
-    rank: anime.rank,
-    popularity: anime.popularity,
-    year: anime.year,
-    season: anime.season,
-    studio: anime.studios?.[0]?.name ?? null,
-    rating: anime.rating,
-    duration: anime.duration,
-    source: anime.source,
-    kitsuId: externalKitsuId || mappedKitsuId,
-    imdbId: findExternalId(anime, "imdb"),
-    syncedAt: new Date(),
-  };
+      return true;
+    })
+    .sort((left, right) => computeRelevanceScore(right) - computeRelevanceScore(left))
+    .slice(0, maxCatalogSize);
+
+  return { selected, discards };
 };
 
-const main = async () => {
+export const runAnilistCatalogSync = async ({ reset = process.argv.includes("--reset"), media }: SyncOptions = {}) => {
   const { db, pool } = createDb(process.env.DATABASE_URL);
-  const malKitsuMap = loadMalKitsuMapping();
   let totalUpserted = 0;
-  let totalSkipped = 0;
 
   try {
-    for (let page = 1; page <= TOTAL_PAGES; page += 1) {
-      try {
-        process.stdout.write(`Syncing page ${page}/${TOTAL_PAGES}... `);
-        const response = await fetch(`https://api.jikan.moe/v4/top/anime?limit=${LIMIT}&page=${page}`);
+    if (reset) await resetAnimeCatalog(db, { nodeEnv: process.env.NODE_ENV, databaseUrl: process.env.DATABASE_URL });
 
-        if (!response.ok) {
-          throw new Error(`HTTP ${response.status}`);
-        }
+    const fetched = media
+      ? { media, skippedPages: [] }
+      : await fetchAniListCatalog(createAniListClient({ retries: 4, delayMs: 2_500 }), undefined, {
+        delayBetweenPagesMs: 900,
+        maxPagesPerLane: 40,
+      });
+    const { selected, discards } = selectCatalogMedia(fetched.media);
+    for (const item of selected) {
+      const { anime, genres } = mapAniListMediaToAnime(item);
+      await db
+        .insert(animes)
+        .values(anime)
+        .onConflictDoUpdate({
+          target: animes.id,
+          set: buildAnimeUpsertSet(anime),
+        });
 
-        const body = (await response.json()) as JikanResponse;
-        const pageAnimes = body.data ?? [];
-
-        for (const anime of pageAnimes) {
-          const record = toAnimeRecord(anime, malKitsuMap);
-          await db
-            .insert(animes)
-            .values(record)
-            .onConflictDoUpdate({
-              target: animes.id,
-              set: buildAnimeUpsertSet(record),
-            });
-
-          await db.delete(animeGenres).where(eq(animeGenres.animeId, anime.mal_id));
-
-          const genres = [...new Set((anime.genres ?? []).map((genre) => genre.name).filter(Boolean))];
-          if (genres.length > 0) {
-            await db.insert(animeGenres).values(genres.map((genre) => ({ animeId: anime.mal_id, genre })));
-          }
-
-          if (anime.episodes && anime.episodes > 0) {
-            await db.execute(sql`
-              insert into ${animeEpisodes} (anime_id, season, episode, title)
-              select ${anime.mal_id}, 1, generated_episode, 'Episodio ' || generated_episode
-              from generate_series(1, ${anime.episodes}) generated_episode
-              on conflict (anime_id, season, episode) do nothing
-            `);
-          }
-        }
-
-        totalUpserted += pageAnimes.length;
-        console.log(`done (${pageAnimes.length} animes upserted)`);
-      } catch (error) {
-        totalSkipped += LIMIT;
-        console.error(`failed (${error instanceof Error ? error.message : "error desconocido"})`);
+      await db.delete(animeGenres).where(eq(animeGenres.animeId, anime.id));
+      if (genres.length > 0) {
+        await db.insert(animeGenres).values(genres.map((genre) => ({ animeId: anime.id, genre })));
       }
 
-      if (page < TOTAL_PAGES) {
-        await sleep(REQUEST_DELAY_MS);
+      if (anime.episodes && anime.episodes > 0) {
+        await db.execute(sql`
+          insert into ${animeEpisodes} (anime_id, season, episode, title)
+          select ${anime.id}, 1, generated_episode, 'Episodio ' || generated_episode
+          from generate_series(1, ${anime.episodes}) generated_episode
+          on conflict (anime_id, season, episode) do nothing
+        `);
       }
+
+      totalUpserted += 1;
     }
+
+    return { totalUpserted, discards, skippedPages: fetched.skippedPages };
   } finally {
     await pool.end();
   }
-
-  console.log(`Anime sync complete: ${totalUpserted} upserted, ${totalSkipped} skipped`);
 };
 
-await main();
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+  const summary = await runAnilistCatalogSync();
+  console.log("Anime sync complete:", summary);
+}

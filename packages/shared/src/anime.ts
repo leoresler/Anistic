@@ -1,15 +1,17 @@
 import { z } from "zod";
 
-export const animeSorts = ["score", "popularity", "year", "rank"] as const;
+export const animeSorts = ["relevance", "score", "popularity", "year", "rank"] as const;
 export const sortOrders = ["asc", "desc"] as const;
 export const animeStatuses = ["Airing", "Finished Airing"] as const;
 export const animeSeasons = ["winter", "spring", "summer", "fall"] as const;
+export const animeFormats = ["TV", "MOVIE", "ONA", "OVA", "SPECIAL"] as const;
 export const userAnimeListStatuses = ["watching", "completed", "pending"] as const;
 
 export const animeSortSchema = z.enum(animeSorts);
 export const sortOrderSchema = z.enum(sortOrders);
 export const animeStatusSchema = z.enum(animeStatuses);
 export const animeSeasonSchema = z.enum(animeSeasons);
+export const animeFormatSchema = z.enum(animeFormats);
 export const userAnimeListStatusSchema = z.enum(userAnimeListStatuses);
 
 export const animeListQuerySchema = z.object({
@@ -18,9 +20,10 @@ export const animeListQuerySchema = z.object({
   search: z.string().trim().min(1).optional(),
   genres: z.array(z.string().trim().min(1)).default([]),
   status: animeStatusSchema.optional(),
+  format: animeFormatSchema.optional(),
   year: z.coerce.number().int().positive().optional(),
   season: animeSeasonSchema.optional(),
-  sort: animeSortSchema.default("score"),
+  sort: animeSortSchema.default("relevance"),
   order: sortOrderSchema.optional(),
 });
 
@@ -40,6 +43,7 @@ export type AnimeSort = z.infer<typeof animeSortSchema>;
 export type SortOrder = z.infer<typeof sortOrderSchema>;
 export type AnimeStatus = z.infer<typeof animeStatusSchema>;
 export type AnimeSeason = z.infer<typeof animeSeasonSchema>;
+export type AnimeFormat = z.infer<typeof animeFormatSchema>;
 export type UserAnimeListStatus = z.infer<typeof userAnimeListStatusSchema>;
 export type AnimeListQuery = z.infer<typeof animeListQuerySchema>;
 export type AnimeProgressBody = z.infer<typeof animeProgressBodySchema>;
@@ -52,6 +56,7 @@ export type Anime = {
   titleJapanese: string | null;
   synopsis: string | null;
   imageUrl: string | null;
+  bannerUrl: string | null;
   trailerUrl: string | null;
   episodes: number | null;
   status: string | null;
@@ -59,6 +64,14 @@ export type Anime = {
   scoredBy: number | null;
   rank: number | null;
   popularity: number | null;
+  anilistId: number | null;
+  format: string | null;
+  countryOfOrigin: string | null;
+  startDate: string | null;
+  averageScore: number | null;
+  anilistPopularity: number | null;
+  trending: number | null;
+  relevanceScore: string | null;
   year: number | null;
   season: string | null;
   studio: string | null;
@@ -67,6 +80,7 @@ export type Anime = {
   source: string | null;
   malId: number;
   kitsuId: string | null;
+  hidden: boolean;
   syncedAt: string;
   createdAt: string;
   genres: string[];
@@ -113,7 +127,9 @@ export type AnimeProgressResponse = {
   continueWatching: AnimeProgress | null;
 };
 
-export type AnimeSummary = Pick<Anime, "id" | "title" | "titleEnglish" | "imageUrl" | "episodes" | "score" | "malId" | "year">;
+export type AnimeSummary = Pick<Anime, "id" | "title" | "titleEnglish" | "imageUrl" | "episodes" | "score" | "malId" | "year"> & {
+  format?: Anime["format"];
+};
 
 export type ContinueWatchingItem = {
   progress: AnimeProgress;

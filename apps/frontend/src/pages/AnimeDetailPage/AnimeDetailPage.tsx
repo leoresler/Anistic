@@ -46,6 +46,12 @@ export const AnimeDetailPage = () => {
     void eventsApi.track({ eventType: "anime_viewed", animeId: animeQuery.data.id }).catch(() => undefined);
   }, [animeQuery.data, token]);
 
+  useEffect(() => {
+    setSeason(1);
+    setManualEpisode(1);
+    setListMessage(null);
+  }, [animeId]);
+
   const saveList = useMutation({
     mutationFn: (status: "watching" | "completed" | "pending") => animeApi.saveList(animeId, status),
     onSuccess: async () => {
@@ -78,27 +84,32 @@ export const AnimeDetailPage = () => {
   const currentList = listsQuery.data?.find((item) => item.anime.id === anime.id)?.list.status;
 
   return (
-    <main className="min-h-screen px-5 py-8 text-cream-primary">
-      <section className="relative z-10 mx-auto max-w-6xl">
-        <AnimeDetailHeader
-          anime={anime}
-          continueWatching={progressQuery.data?.continueWatching}
-          token={token}
-          currentList={currentList}
-          listMessage={listMessage}
-          onSaveList={saveList.mutate}
-          onRemoveList={removeList.mutate}
-        />
+    <main className="h-dvh overflow-hidden text-cream-primary">
+      <section className="relative z-10 grid h-full min-h-0 lg:grid-cols-[minmax(0,1fr)_minmax(380px,500px)]">
+        <div className="h-full min-h-0 overflow-hidden">
+          <AnimeDetailHeader
+            anime={anime}
+            continueWatching={progressQuery.data?.continueWatching}
+            token={token}
+            currentList={currentList}
+            listMessage={listMessage}
+            onSaveList={saveList.mutate}
+            onRemoveList={removeList.mutate}
+          />
+        </div>
 
-        <AnimeDetailEpisodeSection
-          anime={anime}
-          episodes={episodesQuery.data ?? []}
-          progress={progressQuery.data?.progress}
-          season={season}
-          onSeasonChange={setSeason}
-          manualEpisode={manualEpisode}
-          onManualEpisodeChange={setManualEpisode}
-        />
+        <aside className="h-full min-h-0 overflow-hidden border-t border-white/10 bg-anime-main lg:border-l lg:border-t-0">
+          <AnimeDetailEpisodeSection
+            anime={anime}
+            episodes={episodesQuery.data ?? []}
+            progress={progressQuery.data?.progress}
+            continueWatching={progressQuery.data?.continueWatching}
+            season={season}
+            onSeasonChange={setSeason}
+            manualEpisode={manualEpisode}
+            onManualEpisodeChange={setManualEpisode}
+          />
+        </aside>
       </section>
     </main>
   );

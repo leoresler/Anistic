@@ -3,6 +3,7 @@ import { useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 
 import { eventsApi, type Anime, type AnimeSummary } from "../lib/api";
+import { formatAnimeFormatLabel, formatEpisodeCountLabel } from "../lib/animeLabels";
 
 type AnimeCardProps = {
   anime: Anime | AnimeSummary;
@@ -23,6 +24,7 @@ export const AnimeCard = ({ anime }: AnimeCardProps) => {
   );
 
   const hasImage = Boolean(anime.imageUrl) && !imageFailed;
+  const format = "format" in anime ? anime.format : undefined;
 
   return (
     <Link
@@ -49,6 +51,9 @@ export const AnimeCard = ({ anime }: AnimeCardProps) => {
           <div className="absolute right-1.5 top-1.5 inline-flex items-center gap-0.5 rounded-full bg-sabio px-1.5 py-0.5 text-[10px] font-black text-anime-main">
             <Star size={9} fill="currentColor" /> {anime.score ?? "-"}
           </div>
+          <div className="absolute left-1.5 top-1.5 rounded-full border border-white/15 bg-anime-main/75 px-1.5 py-0.5 text-[9px] font-black uppercase tracking-[0.12em] text-cream-primary backdrop-blur">
+            {formatAnimeFormatLabel(format)}
+          </div>
         </div>
 
         <div className="flex flex-1 flex-col p-2.5">
@@ -56,7 +61,7 @@ export const AnimeCard = ({ anime }: AnimeCardProps) => {
             {anime.title}
           </h3>
           <p className="mt-auto pt-1.5 text-[10px] font-semibold text-cream-secondary">
-            {anime.year ?? "—"}{anime.episodes ? ` · ${anime.episodes} eps` : ""}
+            {anime.year ?? "—"} · {formatEpisodeCountLabel(format, anime.episodes)}
           </p>
         </div>
       </article>

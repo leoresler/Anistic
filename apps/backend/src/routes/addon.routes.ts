@@ -13,7 +13,9 @@ import {
   streamUsedSchema,
   type AddonResult,
   type AddonStream,
+  type AddonStreamsQuery,
   type TorrentStream,
+  type UserAddonManifest,
   type UrlStream,
 } from "@template/shared";
 
@@ -108,6 +110,67 @@ const languageFromTitle = (title: string) => {
 };
 
 const streamIdentifier = (stream: AddonStream): string => (stream.type === "torrent" ? stream.magnet : stream.url);
+
+type StreamIdAnime = { imdbId?: string | null; kitsuId?: string | null } | null | undefined;
+
+const getStreamIdPrefixes = (manifest: UserAddonManifest | null | undefined) => {
+  const prefixes = new Set<string>();
+  for (const resource of manifest?.resources ?? []) {
+    if (!resource || typeof resource !== "object") continue;
+    const record = resource as Record<string, unknown>;
+    if (record.name !== "stream" || !Array.isArray(record.idPrefixes)) continue;
+    for (const prefix of record.idPrefixes) {
+      if (typeof prefix === "string") prefixes.add(prefix);
+    }
+  }
+  return prefixes;
+};
+
+export const buildStreamIds = (manifest: UserAddonManifest | null | undefined, anime: StreamIdAnime, query: AddonStreamsQuery): string[] => {
+  const prefixes = getStreamIdPrefixes(manifest);
+  const hasUsablePrefixes = ["tt", "kitsu", "mal"].some((prefix) => prefixes.has(prefix));
+  const ids: string[] = [];
+
+  if (!hasUsablePrefixes) {
+    if (anime?.kitsuId) ids.push(`kitsu:${anime.kitsuId}:${query.season}:${query.episode}`);
+    if (anime?.imdbId) ids.push(`${anime.imdbId}:${query.season}:${query.episode}`);
+    ids.push(`mal:${query.mal_id}:${query.season}:${query.episode}`);
+    return ids;
+  }
+
+  if (prefixes.has("tt") && anime?.imdbId) ids.push(`${anime.imdbId}:${query.season}:${query.episode}`);
+  if (prefixes.has("kitsu") && anime?.kitsuId) ids.push(`kitsu:${anime.kitsuId}:${query.season}:${query.episode}`);
+  if (prefixes.has("mal")) ids.push(`mal:${query.mal_id}:${query.season}:${query.episode}`);
+  return ids;
+};
+
+const normalizeAddonUrlForDedupe = (url: string) => {
+  try {
+    return normalizeAddonUrl(url);
+  } catch {
+    return url.trim().replace(/\/+$/, "");
+  }
+};
+
+export const dedupeInstalledAddonsByUrl = <T extends { url: string }>(addons: T[]): T[] => {
+  const seen = new Set<string>();
+  return addons.filter((addon) => {
+    const url = normalizeAddonUrlForDedupe(addon.url);
+    if (seen.has(url)) return false;
+    seen.add(url);
+    return true;
+  });
+};
+
+export const dedupeStreams = (streams: AddonStream[]): AddonStream[] => {
+  const seen = new Set<string>();
+  return streams.filter((stream) => {
+    const key = `${stream.addonName}\u0000${stream.title}\u0000${streamIdentifier(stream)}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+};
 
 const seedersFromStream = (stream: Record<string, unknown>, title: string) => {
   const direct = typeof stream.seeders === "number" ? stream.seeders : typeof stream.seeds === "number" ? stream.seeds : null;
@@ -258,13 +321,12 @@ const addonRoutes: FastifyPluginAsync = async (app) => {
       db.query.animes.findFirst({ where: eq(animes.malId, query.mal_id) }),
     ]);
 
+    const uniqueAddons = dedupeInstalledAddonsByUrl(addons);
+
     const addonResponses = await Promise.allSettled(
-      addons.map(async (addon) => {
-        const ids = [
-          anime?.kitsuId ? `kitsu:${anime.kitsuId}:${query.season}:${query.episode}` : null,
-          anime?.imdbId ? `${anime.imdbId}:${query.season}:${query.episode}` : null,
-          `mal:${query.mal_id}:${query.season}:${query.episode}`,
-        ].filter((id): id is string => Boolean(id));
+      uniqueAddons.map(async (addon) => {
+        const manifest = addonManifestSchema.safeParse(addon.manifest).data;
+        const ids = buildStreamIds(manifest, anime, query);
 
         const attempts = await Promise.allSettled(
           ids.map(async (id) => extractStreams(await fetchJson(`${addon.url}/stream/series/${id}.json`), addon.name)),
@@ -277,7 +339,7 @@ const addonRoutes: FastifyPluginAsync = async (app) => {
 
     const streams: AddonStream[] = [];
     const addonResults: AddonResult[] = addonResponses.map((response, index) => {
-      const addonName = addons[index]?.name ?? "Addon";
+      const addonName = uniqueAddons[index]?.name ?? "Addon";
       if (response.status === "rejected") {
         return { addonName, status: "failed", error: response.reason instanceof Error ? response.reason.message : "Error desconocido" };
       }
@@ -285,8 +347,9 @@ const addonRoutes: FastifyPluginAsync = async (app) => {
       streams.push(...response.value.streams);
       return { addonName, status: "ok", streamCount: response.value.streams.length };
     });
+    const uniqueStreams = dedupeStreams(streams);
 
-    if (anime && streams.length > 0) {
+    if (anime && uniqueStreams.length > 0) {
       const [lastUsedRows, workedRows] = await Promise.all([
         db
           .select()
@@ -304,14 +367,14 @@ const addonRoutes: FastifyPluginAsync = async (app) => {
 
       const lastUsedKeys = new Set(lastUsedRows.map((row) => `${row.addonName}\u0000${row.streamTitle}\u0000${row.streamUrl}`));
       const worked = new Map(workedRows.rows.map((row) => [`${row.addon_name}\u0000${row.stream_title}\u0000${row.stream_url}`, row.users]));
-      for (const stream of streams) {
+      for (const stream of uniqueStreams) {
         const key = `${stream.addonName}\u0000${stream.title}\u0000${streamIdentifier(stream)}`;
         stream.lastUsed = lastUsedKeys.has(key);
         stream.workedForUsers = worked.get(key) ?? 0;
       }
     }
 
-    return { streams, addonResults };
+    return { streams: uniqueStreams, addonResults };
   });
 
   app.post("/addons/streams/used", async (request, reply) => {

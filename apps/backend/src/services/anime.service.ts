@@ -1,7 +1,7 @@
 import { and, asc, count, desc, eq, sql } from "drizzle-orm";
 
 import { animeGenres, animes, createDb } from "@template/database";
-import type { AnimeSort, SortOrder } from "@template/shared";
+import type { AnimeFormat, AnimeSort, SortOrder } from "@template/shared";
 
 import { env } from "../env";
 
@@ -15,18 +15,20 @@ export type ListAnimesInput = {
   search?: string;
   genres: string[];
   status?: string;
+  format?: AnimeFormat;
   year?: number;
   season?: string;
   sort: AnimeSort;
   order: SortOrder;
 };
 
-const orderColumn = {
+export const orderColumn = {
+  relevance: animes.relevanceScore,
   score: animes.score,
   popularity: animes.popularity,
   year: animes.year,
   rank: animes.rank,
-} satisfies Record<AnimeSort, typeof animes.score | typeof animes.popularity | typeof animes.year | typeof animes.rank>;
+} satisfies Record<AnimeSort, typeof animes.relevanceScore | typeof animes.score | typeof animes.popularity | typeof animes.year | typeof animes.rank>;
 
 export const animePayload = {
   id: animes.id,
@@ -35,6 +37,7 @@ export const animePayload = {
   titleJapanese: animes.titleJapanese,
   synopsis: animes.synopsis,
   imageUrl: animes.imageUrl,
+  bannerUrl: animes.bannerUrl,
   trailerUrl: animes.trailerUrl,
   episodes: animes.episodes,
   status: animes.status,
@@ -42,6 +45,14 @@ export const animePayload = {
   scoredBy: animes.scoredBy,
   rank: animes.rank,
   popularity: animes.popularity,
+  anilistId: animes.anilistId,
+  format: animes.format,
+  countryOfOrigin: animes.countryOfOrigin,
+  startDate: animes.startDate,
+  averageScore: animes.averageScore,
+  anilistPopularity: animes.anilistPopularity,
+  trending: animes.trending,
+  relevanceScore: animes.relevanceScore,
   year: animes.year,
   season: animes.season,
   studio: animes.studio,
@@ -50,13 +61,44 @@ export const animePayload = {
   source: animes.source,
   malId: animes.malId,
   kitsuId: animes.kitsuId,
+  hidden: animes.hidden,
   syncedAt: animes.syncedAt,
   createdAt: animes.createdAt,
 };
 
 const genreArray = sql<string[]>`coalesce(array_remove(array_agg(${animeGenres.genre} order by ${animeGenres.genre}), null), '{}')`;
 
-const buildWhere = (input: ListAnimesInput) => {
+export const publicAnimeWhere = eq(animes.hidden, false);
+
+export const buildAnimeByIdWhere = (id: number) => sql`${animes.id} = ${id} and ${publicAnimeWhere}`;
+
+export const buildListAnimeGenresSql = () => sql<{ genre: string }>`
+  select distinct ${animeGenres.genre} as genre
+  from ${animeGenres}
+  inner join ${animes} on ${animes.id} = ${animeGenres.animeId}
+  where ${publicAnimeWhere}
+  order by ${animeGenres.genre}
+`;
+
+export const buildAnimeStatsSql = () => sql<{
+  total: number;
+  airing: number;
+  finished: number;
+  top_score: string | null;
+  genres: number;
+  years: number[] | null;
+}>`
+  select
+    count(*)::int as total,
+    count(*) filter (where status = 'Airing')::int as airing,
+    count(*) filter (where status = 'Finished Airing')::int as finished,
+    max(score) as top_score,
+    (select count(distinct ag.genre)::int from anime_genres ag inner join animes a on a.id = ag.anime_id where a.hidden = false) as genres,
+    (select coalesce(array_agg(distinct year order by year desc), '{}') from animes where hidden = false and year is not null) as years
+  from animes where hidden = false
+`;
+
+export const buildWhere = (input: ListAnimesInput) => {
   const filters = [];
 
   if (input.search) {
@@ -72,10 +114,12 @@ const buildWhere = (input: ListAnimesInput) => {
   }
 
   if (input.status) filters.push(eq(animes.status, input.status));
+  if (input.format) filters.push(eq(animes.format, input.format));
   if (input.year) filters.push(eq(animes.year, input.year));
   if (input.season) filters.push(eq(animes.season, input.season));
+  filters.push(publicAnimeWhere);
 
-  return filters.length > 0 ? and(...filters) : undefined;
+  return and(...filters);
 };
 
 export const listAnimes = async (input: ListAnimesInput) => {
@@ -116,7 +160,7 @@ export const getAnimeById = async (id: number) => {
     .select({ ...animePayload, genres: genreArray })
     .from(animes)
     .leftJoin(animeGenres, eq(animeGenres.animeId, animes.id))
-    .where(eq(animes.id, id))
+    .where(buildAnimeByIdWhere(id))
     .groupBy(animes.id)
     .limit(1);
 
@@ -124,28 +168,12 @@ export const getAnimeById = async (id: number) => {
 };
 
 export const listAnimeGenres = async () => {
-  const rows = await db.selectDistinct({ genre: animeGenres.genre }).from(animeGenres).orderBy(animeGenres.genre);
-  return rows.map((row) => row.genre);
+  const rows = await db.execute(buildListAnimeGenresSql());
+  return rows.rows.map((row) => row.genre);
 };
 
 export const getAnimeStats = async () => {
-  const statsResult = await db.execute<{
-    total: number;
-    airing: number;
-    finished: number;
-    top_score: string | null;
-    genres: number;
-    years: number[] | null;
-  }>(sql`
-    select
-      count(*)::int as total,
-      count(*) filter (where status = 'Airing')::int as airing,
-      count(*) filter (where status = 'Finished Airing')::int as finished,
-      max(score) as top_score,
-      (select count(distinct genre)::int from anime_genres) as genres,
-      (select coalesce(array_agg(distinct year order by year desc), '{}') from animes where year is not null) as years
-    from animes
-  `);
+  const statsResult = await db.execute(buildAnimeStatsSql());
   const stats = statsResult.rows[0];
 
   return {

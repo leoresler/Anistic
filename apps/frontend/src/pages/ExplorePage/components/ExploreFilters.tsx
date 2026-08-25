@@ -1,5 +1,9 @@
-import { ChevronDown, SlidersHorizontal, X } from "lucide-react";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { ChevronDown, X } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
+
+import { animeFormats } from "@template/shared";
+
+import { formatAnimeFormatLabel } from "../../../lib/animeLabels";
 
 const statusOptions = [
   { label: "En emisión", value: "Airing" },
@@ -14,11 +18,14 @@ const seasonOptions = [
 ];
 
 const sortOptions = [
+  { label: "Relevancia", value: "relevance" },
   { label: "Puntuación", value: "score" },
   { label: "Popularidad", value: "popularity" },
   { label: "Año", value: "year" },
   { label: "Ranking", value: "rank" },
 ];
+
+const formatOptions = animeFormats.map((format) => ({ label: formatAnimeFormatLabel(format), value: format }));
 
 export const genreValues = (params: URLSearchParams) =>
   params.getAll("genre").flatMap((genre) => genre.split(",").filter(Boolean));
@@ -177,10 +184,11 @@ export const ExploreFilters = ({
   const selectedGenres = genreValues(params);
   const currentStatus = params.get("status") ?? "";
   const currentSeason = params.get("season") ?? "";
+  const currentFormat = params.get("format") ?? "";
   const currentYear = params.get("year") ?? "";
-  const currentSort = params.get("sort") ?? "score";
+  const currentSort = params.get("sort") ?? "relevance";
   const hasActiveFilters =
-    selectedGenres.length > 0 || currentStatus || currentSeason || currentYear || currentSort !== "score";
+    selectedGenres.length > 0 || currentStatus || currentSeason || currentFormat || currentYear || currentSort !== "relevance";
 
   const yearOptions = years.slice(0, 12).map((y) => ({ label: String(y), value: String(y) }));
 
@@ -205,6 +213,14 @@ export const ExploreFilters = ({
       />
 
       <SingleSelect
+        label="Formato"
+        options={formatOptions}
+        allLabel="Todos"
+        currentValue={currentFormat}
+        onChange={(v) => onSetParam("format", v)}
+      />
+
+      <SingleSelect
         label="Año"
         options={yearOptions}
         allLabel="Todos"
@@ -215,7 +231,7 @@ export const ExploreFilters = ({
       <SingleSelect
         label="Ordenar"
         options={sortOptions}
-        allLabel="Puntuación"
+        allLabel="Relevancia"
         currentValue={currentSort}
         onChange={(v) => onSetParam("sort", v)}
       />

@@ -5,12 +5,14 @@ import { z } from "zod";
 import { animeEpisodes, animeGenres, animes, createDb, userAnimeLists, userAnimeProgress } from "@template/database";
 import {
   animeProgressBodySchema,
+  animeFormats,
   animeSeasons,
   animeSorts,
   animeStatuses,
   sortOrders,
   userAnimeListBodySchema,
   userAnimeListStatusSchema,
+  type AnimeFormat,
   type AnimeSort,
   type SortOrder,
 } from "@template/shared";
@@ -24,6 +26,8 @@ import { getBecauseYouWatched, getContinueWatching, getPopularCommunity, getTopW
 type AnimeQuery = Record<string, string | string[] | undefined>;
 
 const { db } = createDb(env.DATABASE_URL);
+
+export const publicRouteAnimeFilter = eq(animes.hidden, false);
 
 const first = (value: string | string[] | undefined) => (Array.isArray(value) ? value[0] : value);
 
@@ -43,6 +47,30 @@ const parseGenres = (value: string | string[] | undefined) => {
 const isOneOf = <T extends readonly string[]>(value: string | undefined, options: T): value is T[number] =>
   Boolean(value && options.includes(value));
 
+export const parseAnimeListQuery = (query: AnimeQuery) => {
+  const page = Math.max(1, parseIntParam(query.page, 1) ?? 1);
+  const limit = Math.min(48, Math.max(1, parseIntParam(query.limit, 24) ?? 24));
+  const sort = isOneOf(first(query.sort), animeSorts) ? (first(query.sort) as AnimeSort) : "relevance";
+  const defaultOrder = sort === "rank" ? "asc" : "desc";
+  const order = isOneOf(first(query.order), sortOrders) ? (first(query.order) as SortOrder) : defaultOrder;
+  const status = isOneOf(first(query.status), animeStatuses) ? first(query.status) : undefined;
+  const season = isOneOf(first(query.season), animeSeasons) ? first(query.season) : undefined;
+  const format = isOneOf(first(query.format), animeFormats) ? (first(query.format) as AnimeFormat) : undefined;
+
+  return {
+    page,
+    limit,
+    search: first(query.search)?.trim() || undefined,
+    genres: parseGenres(query.genre),
+    status,
+    format,
+    year: parseIntParam(query.year),
+    season,
+    sort,
+    order,
+  };
+};
+
 const animeCardSql = sql`
   json_build_object(
     'id', ${animes.id},
@@ -51,6 +79,7 @@ const animeCardSql = sql`
     'titleJapanese', ${animes.titleJapanese},
     'synopsis', ${animes.synopsis},
     'imageUrl', ${animes.imageUrl},
+    'bannerUrl', ${animes.bannerUrl},
     'trailerUrl', ${animes.trailerUrl},
     'episodes', ${animes.episodes},
     'status', ${animes.status},
@@ -58,6 +87,14 @@ const animeCardSql = sql`
     'scoredBy', ${animes.scoredBy},
     'rank', ${animes.rank},
     'popularity', ${animes.popularity},
+    'anilistId', ${animes.anilistId},
+    'format', ${animes.format},
+    'countryOfOrigin', ${animes.countryOfOrigin},
+    'startDate', ${animes.startDate},
+    'averageScore', ${animes.averageScore},
+    'anilistPopularity', ${animes.anilistPopularity},
+    'trending', ${animes.trending},
+    'relevanceScore', ${animes.relevanceScore},
     'year', ${animes.year},
     'season', ${animes.season},
     'studio', ${animes.studio},
@@ -65,6 +102,7 @@ const animeCardSql = sql`
     'duration', ${animes.duration},
     'source', ${animes.source},
     'malId', ${animes.malId},
+    'hidden', ${animes.hidden},
     'syncedAt', ${animes.syncedAt},
     'createdAt', ${animes.createdAt},
     'genres', coalesce((select array_agg(${animeGenres.genre} order by ${animeGenres.genre}) from ${animeGenres} where ${animeGenres.animeId} = ${animes.id}), '{}')
@@ -88,7 +126,7 @@ const listRows = async (userId: string, status?: z.infer<typeof userAnimeListSta
     .select({ list: userAnimeLists, anime: { id: animes.id, title: animes.title, titleEnglish: animes.titleEnglish, imageUrl: animes.imageUrl, episodes: animes.episodes, score: animes.score, malId: animes.malId, year: animes.year, status: animes.status } })
     .from(userAnimeLists)
     .innerJoin(animes, eq(animes.id, userAnimeLists.animeId))
-    .where(status ? and(eq(userAnimeLists.userId, userId), eq(userAnimeLists.status, status)) : eq(userAnimeLists.userId, userId))
+    .where(status ? and(eq(userAnimeLists.userId, userId), eq(userAnimeLists.status, status), publicRouteAnimeFilter) : and(eq(userAnimeLists.userId, userId), publicRouteAnimeFilter))
     .orderBy(desc(userAnimeLists.updatedAt));
 
 const listSummaries = async (userId: string | null) => {
@@ -113,7 +151,7 @@ const animeRoutes: FastifyPluginAsync = async (app) => {
           select ${animeCardSql} as anime, max(${animeEpisodes.episode})::int as "latestEpisode", max(${animeEpisodes.airedAt}) as "latestAiredAt"
           from ${animes}
           left join ${animeEpisodes} on ${animeEpisodes.animeId} = ${animes.id}
-          where ${animes.status} = 'Airing' or ${animeEpisodes.airedAt} is not null
+          where ${publicRouteAnimeFilter} and (${animes.status} = 'Airing' or ${animeEpisodes.airedAt} is not null)
           group by ${animes.id}
           order by max(${animeEpisodes.airedAt}) desc nulls last, ${animes.syncedAt} desc
           limit 12
@@ -141,26 +179,7 @@ const animeRoutes: FastifyPluginAsync = async (app) => {
   });
 
   app.get("/animes", async (request) => {
-    const query = request.query as AnimeQuery;
-    const page = Math.max(1, parseIntParam(query.page, 1) ?? 1);
-    const limit = Math.min(48, Math.max(1, parseIntParam(query.limit, 24) ?? 24));
-    const sort = isOneOf(first(query.sort), animeSorts) ? (first(query.sort) as AnimeSort) : "score";
-    const defaultOrder = sort === "rank" ? "asc" : "desc";
-    const order = isOneOf(first(query.order), sortOrders) ? (first(query.order) as SortOrder) : defaultOrder;
-    const status = isOneOf(first(query.status), animeStatuses) ? first(query.status) : undefined;
-    const season = isOneOf(first(query.season), animeSeasons) ? first(query.season) : undefined;
-
-    return listAnimes({
-      page,
-      limit,
-      search: first(query.search)?.trim() || undefined,
-      genres: parseGenres(query.genre),
-      status,
-      year: parseIntParam(query.year),
-      season,
-      sort,
-      order,
-    });
+    return listAnimes(parseAnimeListQuery(request.query as AnimeQuery));
   });
 
   app.get("/animes/genres", async () => ({ genres: await listAnimeGenres() }));
@@ -278,7 +297,7 @@ const animeRoutes: FastifyPluginAsync = async (app) => {
       })
       .from(userAnimeProgress)
       .innerJoin(animes, eq(animes.id, userAnimeProgress.animeId))
-      .where(and(eq(userAnimeProgress.userId, userId), eq(userAnimeProgress.watched, false)))
+      .where(and(eq(userAnimeProgress.userId, userId), eq(userAnimeProgress.watched, false), publicRouteAnimeFilter))
       .orderBy(desc(userAnimeProgress.updatedAt))
       .limit(8);
   });

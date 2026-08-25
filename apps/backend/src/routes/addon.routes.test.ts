@@ -3,7 +3,7 @@ import { describe, it } from "node:test";
 
 import { streamUsedSchema } from "@template/shared";
 
-import { buildMagnet, extractStreams } from "./addon.routes";
+import { buildStreamIds, buildMagnet, dedupeInstalledAddonsByUrl, dedupeStreams, extractStreams } from "./addon.routes";
 
 const validInfoHash = "abc123def456789012345678901234567890abcd";
 
@@ -105,6 +105,64 @@ describe("extractStreams", () => {
     const streams = extractStreams({ streams: [{ infoHash: validInfoHash, sources: [] }] }, "test-addon");
     assert.equal(streams.length, 1);
     assert.match((streams[0] as { magnet: string }).magnet, /&dn=Unknown/);
+  });
+});
+
+describe("buildStreamIds", () => {
+  it("uses declared idPrefixes and does not query unsupported MAL ids", () => {
+    const ids = buildStreamIds(
+      {
+        id: "community-addon",
+        name: "Community Addon",
+        version: "1.0.0",
+        resources: [{ name: "stream", types: ["series"], idPrefixes: ["tt", "kitsu"] }],
+      },
+      { imdbId: "tt1355642", kitsuId: null },
+      { mal_id: 5114, season: 1, episode: 1 },
+    );
+
+    assert.deepEqual(ids, ["tt1355642:1:1"]);
+  });
+});
+
+describe("dedupeInstalledAddonsByUrl", () => {
+  it("keeps the first addon for each normalized URL", () => {
+    const addons = [
+      { id: "newer", url: "https://addon.example/manifest.json", name: "Addon", manifest: null },
+      { id: "older", url: "https://addon.example/", name: "Addon", manifest: null },
+      { id: "other", url: "https://other.example", name: "Other", manifest: null },
+    ];
+
+    assert.deepEqual(
+      dedupeInstalledAddonsByUrl(addons).map((addon) => addon.id),
+      ["newer", "other"],
+    );
+  });
+});
+
+describe("dedupeStreams", () => {
+  it("preserves the first stream for a stable addon/title/locator duplicate", () => {
+    const streams = dedupeStreams([
+      {
+        addonName: "Community Addon",
+        title: "FMAB S01E01 1080p",
+        resolution: "1080p",
+        type: "torrent",
+        magnet: "magnet:?xt=urn:btih:abc123def456789012345678901234567890abcd&dn=FMAB",
+        seeders: 10,
+      },
+      {
+        addonName: "Community Addon",
+        title: "FMAB S01E01 1080p",
+        resolution: "1080p",
+        type: "torrent",
+        magnet: "magnet:?xt=urn:btih:abc123def456789012345678901234567890abcd&dn=FMAB",
+        seeders: 99,
+      },
+    ]);
+
+    assert.equal(streams.length, 1);
+    assert.equal(streams[0]?.seeders, 10);
   });
 });
 
